@@ -58,3 +58,6 @@ begin
     alter publication supabase_realtime add table public.message_reads;
   end if;
 end $$;
+
+-- REQUIRED for realtime postgres_changes with filters/RLS to actually deliver.
+alter table public.message_reads replica identity full;

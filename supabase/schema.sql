@@ -101,5 +101,8 @@ $$;
 
 grant execute on function public.get_or_create_dm(uuid) to authenticated;
 
--- Enable Realtime on messages (also toggle it in Dashboard -> Database -> Replication).
+-- Enable Realtime on messages.
 alter publication supabase_realtime add table public.messages;
+-- REQUIRED for realtime postgres_changes to fire with a column filter + RLS.
+-- Without this, messages save but never deliver live to the other side.
+alter table public.messages replica identity full;
