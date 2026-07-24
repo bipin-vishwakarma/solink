@@ -134,6 +134,22 @@ export function ChatShell({
     [contactsKey]
   );
 
+  // deep-link: open a chat from ?c= and apply the stealth-by-default preference (once)
+  useEffect(() => {
+    if (localStorage.getItem("solink:stealthDefault") === "1") setStealth(true);
+    const c = new URLSearchParams(window.location.search).get("c");
+    if (c) connectTo(c);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // keep the URL in sync with the open chat, so links are shareable/deep-linkable
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (activeContact) url.searchParams.set("c", activeContact);
+    else url.searchParams.delete("c");
+    window.history.replaceState(null, "", url.toString());
+  }, [activeContact]);
+
   // one transport per active conversation
   useEffect(() => {
     if (!activeContact) return;
