@@ -1,10 +1,90 @@
 "use client";
 
-import type { ChatMessage } from "@/lib/types";
+import { useEffect, useState } from "react";
+import type { AttachmentMeta, AttachmentRef, ChatMessage } from "@/lib/types";
 
 function timeOf(ts: number): string {
   const d = new Date(ts);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+type Resolver = (ref: AttachmentRef) => Promise<Blob | null>;
+
+function AttachmentView({
+  meta,
+  resolve,
+  mine,
+}: {
+  meta: AttachmentMeta;
+  resolve?: Resolver;
+  mine: boolean;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objUrl: string | null = null;
+    (async () => {
+      if (!resolve) return;
+      const blob = await resolve(meta.ref).catch(() => null);
+      if (!blob) {
+        if (!cancelled) setFailed(true);
+        return;
+      }
+      objUrl = URL.createObjectURL(new Blob([blob], { type: meta.mime }));
+      if (cancelled) URL.revokeObjectURL(objUrl);
+      else setUrl(objUrl);
+    })();
+    return () => {
+      cancelled = true;
+      if (objUrl) URL.revokeObjectURL(objUrl);
+    };
+  }, [meta, resolve]);
+
+  const isImage = meta.mime.startsWith("image/");
+
+  if (isImage) {
+    return (
+      <div className="mb-1 overflow-hidden rounded-lg">
+        {url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <a href={url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+            <img src={url} alt={meta.name} className="max-h-72 w-auto max-w-full rounded-lg" />
+          </a>
+        ) : (
+          <div className="grid h-40 w-56 place-items-center bg-black/20 text-xs text-brand-muted">
+            {failed ? "🔒 couldn't load" : "decrypting…"}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <a
+      href={url ?? undefined}
+      download={meta.name}
+      onClick={(e) => e.stopPropagation()}
+      className={`mb-1 flex items-center gap-3 rounded-lg px-3 py-2 ${
+        mine ? "bg-black/15" : "bg-black/20"
+      }`}
+    >
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-white/10 text-lg">📄</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium">{meta.name}</span>
+        <span className="block text-[11px] opacity-70">
+          {failed ? "couldn't load" : url ? `${formatSize(meta.size)} · download` : "decrypting…"}
+        </span>
+      </span>
+    </a>
+  );
 }
 
 function Ticks() {
@@ -48,10 +128,12 @@ export function MessageBubble({
   msg,
   grouped = false,
   onReply,
+  resolveAttachment,
 }: {
   msg: ChatMessage;
   grouped?: boolean;
   onReply?: (m: ChatMessage) => void;
+  resolveAttachment?: Resolver;
 }) {
   function copy() {
     navigator.clipboard?.writeText(msg.text).catch(() => {});
@@ -111,9 +193,14 @@ export function MessageBubble({
             <div className="truncate opacity-90">{msg.replyTo.preview}</div>
           </div>
         )}
-        <div className="whitespace-pre-wrap break-words">
-          <Linkified text={msg.text} mine={msg.mine} />
-        </div>
+        {msg.attachment && (
+          <AttachmentView meta={msg.attachment} resolve={resolveAttachment} mine={msg.mine} />
+        )}
+        {msg.text && (
+          <div className="whitespace-pre-wrap break-words">
+            <Linkified text={msg.text} mine={msg.mine} />
+          </div>
+        )}
         <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${msg.mine ? "text-white/75" : "text-brand-faint"}`}>
           {timeOf(msg.ts)}
           {msg.mine && <Ticks />}

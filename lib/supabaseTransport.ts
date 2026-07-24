@@ -9,9 +9,20 @@ import {
   deriveSharedKey,
   encryptMessage,
   decryptMessage,
+  encryptBytes,
+  decryptBytes,
 } from "./crypto";
-import type { ChatTransport, TransportEvents, WirePayload } from "./types";
+import { encodeMessage } from "./envelope";
+import type {
+  AttachmentMeta,
+  AttachmentRef,
+  ChatTransport,
+  TransportEvents,
+  WirePayload,
+} from "./types";
 import type { Profile } from "./supabaseClient";
+
+const ATTACH_BUCKET = "attachments";
 
 export interface CloudContext {
   supabase: SupabaseClient;
@@ -168,6 +179,35 @@ export class SupabaseTransport implements ChatTransport {
       ts: new Date(data.created_at as string).getTime(),
       senderName: this.ctx.username,
     };
+  }
+
+  async sendAttachment(
+    bytes: ArrayBuffer,
+    meta: { name: string; mime: string; size: number },
+    caption: string
+  ): Promise<{ payload: WirePayload; attachment: AttachmentMeta } | null> {
+    if (!this.sharedKey || !this.conversationId) return null;
+    const encrypted = await encryptBytes(this.sharedKey, bytes);
+    const path = `${this.conversationId}/${crypto.randomUUID()}`;
+    const { error } = await this.sb.storage
+      .from(ATTACH_BUCKET)
+      .upload(path, encrypted, { contentType: "application/octet-stream", upsert: false });
+    if (error) {
+      this.events.onError?.(error.message);
+      return null;
+    }
+    const attachment: AttachmentMeta = { ...meta, ref: { path } };
+    const payload = await this.send(encodeMessage(caption, undefined, attachment));
+    if (!payload) return null;
+    return { payload, attachment };
+  }
+
+  async resolveAttachment(ref: AttachmentRef): Promise<Blob | null> {
+    if (!this.sharedKey || !ref.path) return null;
+    const { data, error } = await this.sb.storage.from(ATTACH_BUCKET).download(ref.path);
+    if (error || !data) return null;
+    const plain = await decryptBytes(this.sharedKey, await data.arrayBuffer());
+    return new Blob([plain]);
   }
 
   sendTyping(isTyping: boolean) {

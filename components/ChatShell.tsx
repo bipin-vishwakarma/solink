@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChatMessage, ChatTransport, TransportEvents } from "@/lib/types";
+import type { AttachmentRef, ChatMessage, ChatTransport, TransportEvents } from "@/lib/types";
 import { MessageBubble } from "./MessageBubble";
 import { CodeSnippet } from "./CodeSnippet";
 import { BossModeIDE } from "./BossModeIDE";
@@ -81,6 +81,7 @@ export function ChatShell({
   const [notifyOn, setNotifyOn] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const transportRef = useRef<ChatTransport | null>(null);
   const makeTransportRef = useRef(makeTransport);
@@ -167,7 +168,8 @@ export function ChatShell({
         setConnecting(false);
       },
       onMessage: (raw, payload, mine) => {
-        const { text, replyTo } = decodeMessage(raw);
+        const { text, replyTo, attachment } = decodeMessage(raw);
+        const preview = text || (attachment ? "📎 " + attachment.name : "");
         setPeerTyping(false);
         setMessagesByContact((prev) => {
           const list = prev[activeContact] || [];
@@ -176,13 +178,13 @@ export function ChatShell({
             ...prev,
             [activeContact]: [
               ...list,
-              { id: payload.id, mine, text, ts: payload.ts, senderName: payload.senderName, replyTo },
+              { id: payload.id, mine, text, ts: payload.ts, senderName: payload.senderName, replyTo, attachment },
             ],
           };
         });
         if (!mine) {
           setContacts((prev) =>
-            prev.map((c) => (c.username === activeContact ? { ...c, lastText: text, online: true } : c))
+            prev.map((c) => (c.username === activeContact ? { ...c, lastText: preview, online: true } : c))
           );
           // Notify when the tab isn't focused.
           if (typeof document !== "undefined" && document.hidden) {
@@ -288,6 +290,53 @@ export function ChatShell({
     setContacts((prev) => prev.map((c) => (c.username === activeContact ? { ...c, lastText: text } : c)));
     setReplyingTo(null);
   }
+
+  function flash(msg: string) {
+    setNotice(msg);
+    setTimeout(() => setNotice(null), 3000);
+  }
+
+  async function sendFile(file: File) {
+    const t = transportRef.current;
+    if (!t || !activeContact || !t.sendAttachment) return;
+    const MAX = 15 * 1024 * 1024;
+    if (file.size > MAX) {
+      flash("File too large (max 15 MB)");
+      return;
+    }
+    flash(`Encrypting ${file.name}…`);
+    const bytes = await file.arrayBuffer();
+    atBottomRef.current = true;
+    const res = await t.sendAttachment(
+      bytes,
+      { name: file.name, mime: file.type || "application/octet-stream", size: file.size },
+      ""
+    );
+    setNotice(null);
+    if (!res) {
+      flash("Couldn't send file");
+      return;
+    }
+    setMessagesByContact((prev) => {
+      const list = prev[activeContact] || [];
+      if (list.some((m) => m.id === res.payload.id)) return prev;
+      return {
+        ...prev,
+        [activeContact]: [
+          ...list,
+          { id: res.payload.id, mine: true, text: "", ts: res.payload.ts, senderName: myName, attachment: res.attachment },
+        ],
+      };
+    });
+    setContacts((prev) =>
+      prev.map((c) => (c.username === activeContact ? { ...c, lastText: "📎 " + file.name } : c))
+    );
+  }
+
+  const resolveAttachment = useCallback((ref: AttachmentRef) => {
+    const t = transportRef.current;
+    return t?.resolveAttachment ? t.resolveAttachment(ref) : Promise.resolve(null);
+  }, []);
 
   function connectTo(username: string) {
     const clean = username.trim();
@@ -435,7 +484,12 @@ export function ChatShell({
                             </span>
                           </div>
                         )}
-                        <MessageBubble msg={m} grouped={grouped} onReply={setReplyingTo} />
+                        <MessageBubble
+                          msg={m}
+                          grouped={grouped}
+                          onReply={setReplyingTo}
+                          resolveAttachment={resolveAttachment}
+                        />
                       </div>
                     );
                   })}
@@ -484,9 +538,16 @@ export function ChatShell({
               </div>
             )}
 
+            {notice && (
+              <div className="border-t border-brand-border bg-brand-accent/10 px-4 py-1.5 text-center text-xs text-brand-accent">
+                {notice}
+              </div>
+            )}
+
             <Composer
               onSend={send}
               onTyping={(t) => transportRef.current?.sendTyping?.(t)}
+              onAttach={sendFile}
               disabled={!!error}
             />
           </>

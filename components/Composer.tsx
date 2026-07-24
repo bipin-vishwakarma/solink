@@ -12,15 +12,18 @@ const EMOJIS = [
 export function Composer({
   onSend,
   onTyping,
+  onAttach,
   disabled,
 }: {
   onSend: (text: string) => void;
   onTyping?: (isTyping: boolean) => void;
+  onAttach?: (file: File) => void;
   disabled?: boolean;
 }) {
   const [text, setText] = useState("");
   const [showEmoji, setShowEmoji] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const typingRef = useRef(false);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -83,10 +86,21 @@ export function Composer({
         </div>
       )}
 
-      <div className="flex items-end gap-2">
+      <input
+        ref={fileRef}
+        type="file"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f && onAttach) onAttach(f);
+          if (fileRef.current) fileRef.current.value = "";
+        }}
+      />
+
+      <div className="flex items-end gap-1">
         <button
           onClick={() => setShowEmoji((v) => !v)}
-          className={`grid h-11 w-10 shrink-0 place-items-center rounded-full text-xl transition ${
+          className={`grid h-11 w-9 shrink-0 place-items-center rounded-full text-xl transition ${
             showEmoji ? "text-brand-accent" : "text-brand-muted hover:text-brand-text"
           }`}
           aria-label="Emoji"
@@ -94,6 +108,18 @@ export function Composer({
         >
           😊
         </button>
+        {onAttach && (
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="grid h-11 w-9 shrink-0 place-items-center rounded-full text-brand-muted transition hover:text-brand-text"
+            aria-label="Attach file"
+            type="button"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <path d="M21 11.5l-8.5 8.5a5 5 0 01-7-7l8.5-8.5a3.5 3.5 0 015 5L10.5 18a2 2 0 01-3-3l7.5-7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
 
         <textarea
           ref={taRef}

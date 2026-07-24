@@ -12,8 +12,19 @@ import {
   exportPublicKey,
   importPublicKey,
   getOrCreateKeyPair,
+  encryptBytes,
+  decryptBytes,
+  bufToB64,
+  b64ToBuf,
 } from "./crypto";
-import type { ChatTransport, TransportEvents, WirePayload } from "./types";
+import { encodeMessage } from "./envelope";
+import type {
+  AttachmentMeta,
+  AttachmentRef,
+  ChatTransport,
+  TransportEvents,
+  WirePayload,
+} from "./types";
 
 type Signal =
   | { kind: "hello"; peerId: string; name: string; publicKey: string }
@@ -160,6 +171,25 @@ export class LocalTransport implements ChatTransport {
       this.post({ kind: "msg", from: this.myPeerId, ...payload });
     }
     return payload;
+  }
+
+  async sendAttachment(
+    bytes: ArrayBuffer,
+    meta: { name: string; mime: string; size: number },
+    caption: string
+  ): Promise<{ payload: WirePayload; attachment: AttachmentMeta } | null> {
+    if (!this.sharedKey) return null;
+    const encrypted = await encryptBytes(this.sharedKey, bytes);
+    const attachment: AttachmentMeta = { ...meta, ref: { data: bufToB64(encrypted) } };
+    const payload = await this.send(encodeMessage(caption, undefined, attachment));
+    if (!payload) return null;
+    return { payload, attachment };
+  }
+
+  async resolveAttachment(ref: AttachmentRef): Promise<Blob | null> {
+    if (!this.sharedKey || !ref.data) return null;
+    const plain = await decryptBytes(this.sharedKey, b64ToBuf(ref.data));
+    return new Blob([plain]);
   }
 
   private scheduleBotReply() {

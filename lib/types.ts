@@ -4,6 +4,19 @@ export interface ReplyRef {
   mine: boolean; // was the quoted message ours?
 }
 
+// Where the encrypted attachment bytes live: a storage path (cloud) or inline base64 (demo).
+export interface AttachmentRef {
+  path?: string; // Supabase Storage object path (cloud)
+  data?: string; // base64 of [iv|ciphertext] (demo mode, small files)
+}
+
+export interface AttachmentMeta {
+  name: string;
+  mime: string;
+  size: number;
+  ref: AttachmentRef;
+}
+
 export interface ChatMessage {
   id: string;
   mine: boolean; // true if sent by this device
@@ -11,6 +24,7 @@ export interface ChatMessage {
   ts: number;
   senderName: string;
   replyTo?: ReplyRef;
+  attachment?: AttachmentMeta;
 }
 
 // What actually travels over the wire — no plaintext, ever.
@@ -42,5 +56,11 @@ export interface ChatTransport {
   start: () => Promise<void>;
   send: (text: string) => Promise<WirePayload | null>;
   sendTyping?: (isTyping: boolean) => void;
+  sendAttachment?: (
+    bytes: ArrayBuffer,
+    meta: { name: string; mime: string; size: number },
+    caption: string
+  ) => Promise<{ payload: WirePayload; attachment: AttachmentMeta } | null>;
+  resolveAttachment?: (ref: AttachmentRef) => Promise<Blob | null>;
   destroy: () => void;
 }

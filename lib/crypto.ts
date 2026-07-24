@@ -142,3 +142,28 @@ export async function decryptMessage(
   const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, sharedKey, ct);
   return new TextDecoder().decode(plain);
 }
+
+// ---------- binary (file) encryption ----------
+// Layout: [ 12-byte IV | AES-GCM ciphertext ] in a single ArrayBuffer.
+
+export async function encryptBytes(
+  sharedKey: CryptoKey,
+  data: ArrayBuffer
+): Promise<ArrayBuffer> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, sharedKey, data);
+  const out = new Uint8Array(12 + ct.byteLength);
+  out.set(iv, 0);
+  out.set(new Uint8Array(ct), 12);
+  return out.buffer;
+}
+
+export async function decryptBytes(
+  sharedKey: CryptoKey,
+  blob: ArrayBuffer
+): Promise<ArrayBuffer> {
+  const bytes = new Uint8Array(blob);
+  const iv = bytes.slice(0, 12);
+  const ct = bytes.slice(12);
+  return crypto.subtle.decrypt({ name: "AES-GCM", iv }, sharedKey, ct);
+}
