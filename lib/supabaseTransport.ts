@@ -91,7 +91,7 @@ export class SupabaseTransport implements ChatTransport {
       await this.emitRow(row, /* live */ false);
     }
 
-    // 5. Subscribe to new messages in real time.
+    // 5. Subscribe to new messages in real time (+ ephemeral typing broadcasts).
     this.channel = this.sb
       .channel(`conv:${this.conversationId}`)
       .on(
@@ -108,6 +108,11 @@ export class SupabaseTransport implements ChatTransport {
           void this.emitRow(row, true);
         }
       )
+      .on("broadcast", { event: "typing" }, ({ payload }) => {
+        if (payload?.from && payload.from !== this.ctx.userId) {
+          this.events.onTyping?.(!!payload.isTyping);
+        }
+      })
       .subscribe();
 
     // 6. Ready.
@@ -163,6 +168,15 @@ export class SupabaseTransport implements ChatTransport {
       ts: new Date(data.created_at as string).getTime(),
       senderName: this.ctx.username,
     };
+  }
+
+  sendTyping(isTyping: boolean) {
+    if (!this.channel) return;
+    void this.channel.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { from: this.ctx.userId, isTyping },
+    });
   }
 
   destroy() {

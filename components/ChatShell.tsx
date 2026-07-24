@@ -7,11 +7,51 @@ import { CodeSnippet } from "./CodeSnippet";
 import { BossModeIDE } from "./BossModeIDE";
 import { Sidebar, type Contact } from "./Sidebar";
 import { Avatar } from "./Avatar";
+import { Composer } from "./Composer";
+import { TypingDots } from "./TypingDots";
 
 export type TransportFactory = (
   peerUsername: string,
   events: TransportEvents
 ) => ChatTransport;
+
+function sameDay(a: number, b: number): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  return da.toDateString() === db.toDateString();
+}
+
+function dayLabel(ts: number): string {
+  const d = new Date(ts);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return "Today";
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return d.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
+}
+
+// A short WebAudio "ping" for incoming messages — no asset file needed.
+function playPing() {
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    osc.type = "sine";
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.26);
+    osc.onended = () => ctx.close();
+  } catch {
+    /* audio not available */
+  }
+}
 
 export function ChatShell({
   myName,
@@ -35,12 +75,13 @@ export function ChatShell({
   const [ide, setIde] = useState(false);
   const [lastWire, setLastWire] = useState("");
   const [showWire, setShowWire] = useState(true);
-  const [draft, setDraft] = useState("");
+  const [peerTyping, setPeerTyping] = useState(false);
 
   const transportRef = useRef<ChatTransport | null>(null);
   const makeTransportRef = useRef(makeTransport);
   makeTransportRef.current = makeTransport;
   const scrollRef = useRef<HTMLDivElement>(null);
+  const typingClear = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const messages = (activeContact && messagesByContact[activeContact]) || [];
   const contactsKey = `solink:contacts:${myName.toLowerCase()}`;
@@ -69,6 +110,7 @@ export function ChatShell({
     setPeerName("");
     setSimulated(false);
     setError(null);
+    setPeerTyping(false);
 
     const events: TransportEvents = {
       onPeer: (pn, sim) => {
@@ -77,6 +119,7 @@ export function ChatShell({
         setConnecting(false);
       },
       onMessage: (text, payload, mine) => {
+        setPeerTyping(false);
         setMessagesByContact((prev) => {
           const list = prev[activeContact] || [];
           if (list.some((m) => m.id === payload.id)) return prev;
@@ -92,12 +135,25 @@ export function ChatShell({
           setContacts((prev) =>
             prev.map((c) => (c.username === activeContact ? { ...c, lastText: text, online: true } : c))
           );
+          // Notify when the tab isn't focused.
+          if (typeof document !== "undefined" && document.hidden) {
+            playPing();
+            document.title = "● New message";
+          }
         }
       },
       onWireLog: (raw) => setLastWire(raw),
       onError: (msg) => {
         setError(msg);
         setConnecting(false);
+      },
+      onTyping: (isTyping) => {
+        setPeerTyping(isTyping);
+        if (typingClear.current) clearTimeout(typingClear.current);
+        if (isTyping) {
+          // Safety auto-clear in case a "stopped typing" event is missed.
+          typingClear.current = setTimeout(() => setPeerTyping(false), 4000);
+        }
       },
     };
 
@@ -109,6 +165,15 @@ export function ChatShell({
       transportRef.current = null;
     };
   }, [activeContact]);
+
+  // Restore the (disguised) tab title when the user comes back.
+  useEffect(() => {
+    function onFocus() {
+      document.title = "index.ts — Visual Studio Code";
+    }
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
 
   // global hotkeys
   useEffect(() => {
@@ -129,7 +194,7 @@ export function ChatShell({
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages.length]);
+  }, [messages.length, peerTyping]);
 
   async function send(text: string) {
     const t = transportRef.current;
@@ -148,13 +213,6 @@ export function ChatShell({
       };
     });
     setContacts((prev) => prev.map((c) => (c.username === activeContact ? { ...c, lastText: text } : c)));
-  }
-
-  function submitDraft() {
-    const t = draft.trim();
-    if (!t) return;
-    send(t);
-    setDraft("");
   }
 
   function connectTo(username: string) {
@@ -212,6 +270,8 @@ export function ChatShell({
                 <div className="font-mono text-[11px] text-brand-muted">
                   {error ? (
                     <span className="text-red-400">{error}</span>
+                  ) : peerTyping ? (
+                    <span className="text-brand-accent">typing…</span>
                   ) : connecting ? (
                     <span className="text-brand-faint">connecting…</span>
                   ) : simulated ? (
@@ -253,7 +313,7 @@ export function ChatShell({
             <div
               ref={scrollRef}
               className={`flex-1 overflow-y-auto ${
-                stealth ? "bg-ide-bg py-2" : "space-y-2 px-3 py-4 sm:px-5"
+                stealth ? "bg-ide-bg py-2" : "px-3 py-4 sm:px-5"
               }`}
             >
               {messages.length === 0 && !error && (
@@ -272,7 +332,32 @@ export function ChatShell({
                 ? messages.map((m, i) => (
                     <CodeSnippet key={m.id} id={m.id} text={m.text} mine={m.mine} lineNumber={i + 1} />
                   ))
-                : messages.map((m) => <MessageBubble key={m.id} msg={m} />)}
+                : messages.map((m, i) => {
+                    const prev = messages[i - 1];
+                    const showDay = !prev || !sameDay(prev.ts, m.ts);
+                    const grouped =
+                      !!prev &&
+                      prev.mine === m.mine &&
+                      !showDay &&
+                      m.ts - prev.ts < 5 * 60 * 1000;
+                    return (
+                      <div key={m.id}>
+                        {showDay && (
+                          <div className="my-3 flex justify-center">
+                            <span className="rounded-full bg-brand-surface2/80 px-3 py-1 text-[11px] text-brand-muted">
+                              {dayLabel(m.ts)}
+                            </span>
+                          </div>
+                        )}
+                        <MessageBubble msg={m} grouped={grouped} />
+                      </div>
+                    );
+                  })}
+              {!stealth && peerTyping && (
+                <div className="mt-2">
+                  <TypingDots />
+                </div>
+              )}
             </div>
 
             {showWire && lastWire && (
@@ -282,24 +367,11 @@ export function ChatShell({
               </div>
             )}
 
-            <div className="flex items-center gap-2 border-t border-brand-border bg-brand-surface/70 p-3 backdrop-blur">
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && submitDraft()}
-                placeholder="Type a message"
-                className="flex-1 rounded-full border border-brand-border bg-black/25 px-4 py-2.5 text-brand-text outline-none focus:border-brand-accent"
-              />
-              <button
-                onClick={submitDraft}
-                className="grid h-11 w-11 place-items-center rounded-full bg-brand-accent text-white transition hover:bg-brand-accentHover"
-                aria-label="Send"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <path d="M4 12l16-8-6 16-3-6-7-2z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-                </svg>
-              </button>
-            </div>
+            <Composer
+              onSend={send}
+              onTyping={(t) => transportRef.current?.sendTyping?.(t)}
+              disabled={!!error}
+            />
           </>
         )}
       </section>

@@ -18,6 +18,7 @@ import type { ChatTransport, TransportEvents, WirePayload } from "./types";
 type Signal =
   | { kind: "hello"; peerId: string; name: string; publicKey: string }
   | { kind: "bye"; peerId: string }
+  | { kind: "typing"; from: string; isTyping: boolean }
   | ({ kind: "msg"; from: string } & WirePayload);
 
 const BOT_REPLIES = [
@@ -96,6 +97,11 @@ export class LocalTransport implements ChatTransport {
       return;
     }
 
+    if (sig.kind === "typing") {
+      this.events.onTyping?.(sig.isTyping);
+      return;
+    }
+
     if (sig.kind === "msg") {
       if (!this.sharedKey) return;
       try {
@@ -106,6 +112,18 @@ export class LocalTransport implements ChatTransport {
         /* not for us / wrong key */
       }
     }
+  }
+
+  sendTyping(isTyping: boolean) {
+    if (this.simulated) {
+      // Let the echo bot "type back" briefly for a lively demo.
+      if (isTyping) {
+        this.events.onTyping?.(true);
+        setTimeout(() => this.events.onTyping?.(false), 1500);
+      }
+      return;
+    }
+    this.post({ kind: "typing", from: this.myPeerId, isTyping });
   }
 
   private async enableEchoBot() {
@@ -147,8 +165,11 @@ export class LocalTransport implements ChatTransport {
   private scheduleBotReply() {
     if (!this.botSharedKey) return;
     const delay = 700 + Math.floor(Math.random() * 900);
+    // Show a typing bubble while the "peer" composes.
+    setTimeout(() => this.events.onTyping?.(true), 250);
     setTimeout(async () => {
       if (!this.botSharedKey) return;
+      this.events.onTyping?.(false);
       const reply = BOT_REPLIES[Math.floor(Math.random() * BOT_REPLIES.length)];
       const enc = await encryptMessage(this.botSharedKey, reply);
       const payload: WirePayload = {

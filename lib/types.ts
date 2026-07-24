@@ -27,11 +27,13 @@ export interface TransportEvents {
   onMessage: (text: string, payload: WirePayload, mine: boolean) => void;
   onWireLog: (raw: string) => void; // the ciphertext that crosses the wire
   onError?: (message: string) => void;
+  onTyping?: (isTyping: boolean) => void; // peer started/stopped typing
 }
 
 // Common shape implemented by both the local (demo) and Supabase (cloud) transports.
 export interface ChatTransport {
   start: () => Promise<void>;
   send: (text: string) => Promise<WirePayload | null>;
+  sendTyping?: (isTyping: boolean) => void;
   destroy: () => void;
 }
