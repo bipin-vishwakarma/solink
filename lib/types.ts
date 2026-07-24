@@ -25,6 +25,7 @@ export interface ChatMessage {
   senderName: string;
   replyTo?: ReplyRef;
   attachment?: AttachmentMeta;
+  read?: boolean; // for our own messages: has the peer read it? (blue ticks)
 }
 
 // What actually travels over the wire — no plaintext, ever.
@@ -49,6 +50,8 @@ export interface TransportEvents {
   onWireLog: (raw: string) => void; // the ciphertext that crosses the wire
   onError?: (message: string) => void;
   onTyping?: (isTyping: boolean) => void; // peer started/stopped typing
+  onRead?: (messageIds: string[]) => void; // peer has read these of OUR messages
+  onPresence?: (online: boolean, lastSeen?: number) => void; // peer online/last-seen
 }
 
 // Common shape implemented by both the local (demo) and Supabase (cloud) transports.
@@ -62,5 +65,6 @@ export interface ChatTransport {
     caption: string
   ) => Promise<{ payload: WirePayload; attachment: AttachmentMeta } | null>;
   resolveAttachment?: (ref: AttachmentRef) => Promise<Blob | null>;
+  markRead?: (messageIds: string[]) => void; // tell the peer we've read these
   destroy: () => void;
 }

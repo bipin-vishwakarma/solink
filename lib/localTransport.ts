@@ -30,6 +30,7 @@ type Signal =
   | { kind: "hello"; peerId: string; name: string; publicKey: string }
   | { kind: "bye"; peerId: string }
   | { kind: "typing"; from: string; isTyping: boolean }
+  | { kind: "read"; from: string; ids: string[] }
   | ({ kind: "msg"; from: string } & WirePayload);
 
 const BOT_REPLIES = [
@@ -103,13 +104,24 @@ export class LocalTransport implements ChatTransport {
       this.peerName = sig.name;
       this.simulated = false;
       this.events.onPeer(this.peerName, false);
+      this.events.onPresence?.(true);
       // Reply so the peer that arrived first also learns about us.
       if (!alreadyPaired) this.announce();
       return;
     }
 
+    if (sig.kind === "bye") {
+      this.events.onPresence?.(false, Date.now());
+      return;
+    }
+
     if (sig.kind === "typing") {
       this.events.onTyping?.(sig.isTyping);
+      return;
+    }
+
+    if (sig.kind === "read") {
+      this.events.onRead?.(sig.ids);
       return;
     }
 
@@ -150,6 +162,7 @@ export class LocalTransport implements ChatTransport {
     this.botSharedKey = await deriveSharedKey(this.botKeyPair.privateKey, this.myKeyPair.publicKey);
     this.peerName = "Echo";
     this.events.onPeer(this.peerName, true);
+    this.events.onPresence?.(true);
   }
 
   async send(text: string): Promise<WirePayload | null> {
@@ -165,12 +178,18 @@ export class LocalTransport implements ChatTransport {
     this.events.onWireLog(payload.ciphertext);
 
     if (this.simulated) {
-      // Bot "receives" (proving decryption works) then replies after a beat.
+      // Bot "receives" (proving decryption works), reads it, then replies.
+      setTimeout(() => this.events.onRead?.([payload.id]), 1100);
       this.scheduleBotReply();
     } else {
       this.post({ kind: "msg", from: this.myPeerId, ...payload });
     }
     return payload;
+  }
+
+  markRead(ids: string[]) {
+    if (this.simulated || ids.length === 0) return;
+    this.post({ kind: "read", from: this.myPeerId, ids });
   }
 
   async sendAttachment(

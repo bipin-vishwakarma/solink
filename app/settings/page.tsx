@@ -8,6 +8,7 @@ import {
   notifyPermission,
   notifySupported,
 } from "@/lib/notify";
+import { isPushSupported, subscribeToPush } from "@/lib/push";
 import { Avatar } from "@/components/Avatar";
 
 function Row({
@@ -74,6 +75,21 @@ export default function SettingsPage() {
     localStorage.setItem("solink:stealthDefault", v ? "1" : "0");
   }
 
+  const [pushStatus, setPushStatus] = useState<string | null>(null);
+  const [pushBusy, setPushBusy] = useState(false);
+  async function enablePush() {
+    if (!id.userId) return;
+    setPushBusy(true);
+    setPushStatus(null);
+    const res = await subscribeToPush(id.userId);
+    setPushBusy(false);
+    if (res.ok) setPushStatus("Enabled — you'll get notified even when Solink is closed.");
+    else if (res.reason === "no-vapid-key") setPushStatus("Not configured yet (needs VAPID keys).");
+    else if (res.reason === "denied") setPushStatus("Permission denied.");
+    else if (res.reason === "unsupported") setPushStatus("Not supported on this browser.");
+    else setPushStatus("Couldn't enable push.");
+  }
+
   return (
     <main className="mx-auto flex min-h-screen max-w-xl flex-col p-4 sm:p-6">
       <header className="mb-5 flex items-center gap-3">
@@ -106,6 +122,17 @@ export default function SettingsPage() {
         <Row title="Open chats in stealth by default" desc="Start every chat disguised as code">
           <Toggle on={stealthDefault} onChange={toggleStealth} />
         </Row>
+        {id.mode === "cloud" && isPushSupported() && id.userId && (
+          <Row title="Background push" desc={pushStatus || "Get notified even when Solink is closed"}>
+            <button
+              onClick={enablePush}
+              disabled={pushBusy}
+              className="rounded-lg bg-brand-accent/20 px-3 py-1.5 text-xs font-medium text-brand-accent transition hover:bg-brand-accent/30 disabled:opacity-50"
+            >
+              {pushBusy ? "…" : "Enable"}
+            </button>
+          </Row>
+        )}
       </div>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-brand-border bg-brand-surface/70 divide-y divide-brand-border">

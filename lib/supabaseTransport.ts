@@ -124,7 +124,28 @@ export class SupabaseTransport implements ChatTransport {
           this.events.onTyping?.(!!payload.isTyping);
         }
       })
-      .subscribe();
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "message_reads" },
+        (payload) => {
+          const row = payload.new as { message_id: string; reader_id: string };
+          // RLS already limits these to our conversations; ignore our own reads.
+          if (row.reader_id !== this.ctx.userId) this.events.onRead?.([row.message_id]);
+        }
+      )
+      .on("presence", { event: "sync" }, () => {
+        if (!this.channel) return;
+        const state = this.channel.presenceState() as Record<string, Array<{ user?: string }>>;
+        const online = Object.values(state).some((entries) =>
+          entries.some((e) => e.user === this.peer?.id)
+        );
+        this.events.onPresence?.(online);
+      })
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          void this.channel?.track({ user: this.ctx.userId, at: Date.now() });
+        }
+      });
 
     // 6. Ready.
     this.events.onPeer(this.peer.username, false);
@@ -217,6 +238,16 @@ export class SupabaseTransport implements ChatTransport {
       event: "typing",
       payload: { from: this.ctx.userId, isTyping },
     });
+  }
+
+  markRead(ids: string[]) {
+    if (!ids.length) return;
+    void this.sb
+      .from("message_reads")
+      .upsert(
+        ids.map((id) => ({ message_id: id, reader_id: this.ctx.userId })),
+        { onConflict: "message_id,reader_id", ignoreDuplicates: true }
+      );
   }
 
   destroy() {

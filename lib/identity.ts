@@ -7,6 +7,7 @@ import { getOrCreateKeyPair, exportPublicKey, bufToB64 } from "./crypto";
 export interface Identity {
   loading: boolean;
   username: string | null;
+  userId: string | null;
   mode: "cloud" | "demo";
   publicKeyFingerprint: string | null;
 }
@@ -28,6 +29,7 @@ export function useIdentity(): Identity {
   const [state, setState] = useState<Identity>({
     loading: true,
     username: null,
+    userId: null,
     mode: hasSupabase ? "cloud" : "demo",
     publicKeyFingerprint: null,
   });
@@ -41,6 +43,7 @@ export function useIdentity(): Identity {
         setState({
           loading: false,
           username: localStorage.getItem("solink:name"),
+          userId: null,
           mode: "demo",
           publicKeyFingerprint: fp,
         });
@@ -49,7 +52,7 @@ export function useIdentity(): Identity {
       const { data } = await supabase!.auth.getSession();
       const uid = data.session?.user?.id;
       if (!uid) {
-        if (alive) setState({ loading: false, username: null, mode: "cloud", publicKeyFingerprint: fp });
+        if (alive) setState({ loading: false, username: null, userId: null, mode: "cloud", publicKeyFingerprint: fp });
         return;
       }
       const { data: prof } = await supabase!
@@ -61,6 +64,7 @@ export function useIdentity(): Identity {
         setState({
           loading: false,
           username: prof?.username ?? null,
+          userId: uid,
           mode: "cloud",
           publicKeyFingerprint: fp,
         });

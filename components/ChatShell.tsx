@@ -78,6 +78,8 @@ export function ChatShell({
   const [lastWire, setLastWire] = useState("");
   const [showWire, setShowWire] = useState(true);
   const [peerTyping, setPeerTyping] = useState(false);
+  const [peerOnline, setPeerOnline] = useState(false);
+  const [lastSeen, setLastSeen] = useState<number | null>(null);
   const [notifyOn, setNotifyOn] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
@@ -88,6 +90,7 @@ export function ChatShell({
   makeTransportRef.current = makeTransport;
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingClear = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markedRef = useRef<Set<string>>(new Set());
   const atBottomRef = useRef(true);
 
   // Live refs so the (stable) message handler always sees current UI state.
@@ -160,6 +163,9 @@ export function ChatShell({
     setError(null);
     setPeerTyping(false);
     setReplyingTo(null);
+    setPeerOnline(false);
+    setLastSeen(null);
+    markedRef.current = new Set();
 
     const events: TransportEvents = {
       onPeer: (pn, sim) => {
@@ -210,6 +216,24 @@ export function ChatShell({
           typingClear.current = setTimeout(() => setPeerTyping(false), 4000);
         }
       },
+      onRead: (ids) => {
+        setMessagesByContact((prev) => {
+          const list = prev[activeContact] || [];
+          let changed = false;
+          const next = list.map((m) => {
+            if (m.mine && !m.read && ids.includes(m.id)) {
+              changed = true;
+              return { ...m, read: true };
+            }
+            return m;
+          });
+          return changed ? { ...prev, [activeContact]: next } : prev;
+        });
+      },
+      onPresence: (online, seen) => {
+        setPeerOnline(online);
+        if (!online && seen) setLastSeen(seen);
+      },
     };
 
     const t = makeTransportRef.current(activeContact, events);
@@ -253,6 +277,18 @@ export function ChatShell({
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
     }
   }, [messages.length, peerTyping]);
+
+  // Mark the peer's messages as read while the chat is open and the tab is visible.
+  useEffect(() => {
+    if (!activeContact) return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    const list = messagesByContact[activeContact] || [];
+    const unread = list.filter((m) => !m.mine && !markedRef.current.has(m.id)).map((m) => m.id);
+    if (unread.length && transportRef.current?.markRead) {
+      unread.forEach((id) => markedRef.current.add(id));
+      transportRef.current.markRead(unread);
+    }
+  }, [messagesByContact, activeContact]);
 
   function onScroll() {
     const el = scrollRef.current;
@@ -387,7 +423,7 @@ export function ChatShell({
               >
                 ←
               </button>
-              <Avatar name={activeContact} size={40} online={!!peerName} bot={simulated} />
+              <Avatar name={activeContact} size={40} online={peerOnline} bot={simulated} />
               <div className="min-w-0 flex-1">
                 <div className="truncate font-semibold text-brand-text">{activeContact}</div>
                 <div className="truncate font-mono text-[11px] text-brand-muted">
@@ -397,6 +433,12 @@ export function ChatShell({
                     <span className="text-brand-accent">typing…</span>
                   ) : connecting ? (
                     <span className="text-brand-faint">connecting…</span>
+                  ) : peerOnline ? (
+                    <span className="text-brand-online">online</span>
+                  ) : lastSeen ? (
+                    <span className="text-brand-faint">
+                      last seen {new Date(lastSeen).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
                   ) : simulated ? (
                     <span className="text-brand-accent">demo peer · encrypted</span>
                   ) : peerName ? (

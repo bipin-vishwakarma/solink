@@ -203,7 +203,11 @@ export function MessageBubble({
         )}
         <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${msg.mine ? "text-white/75" : "text-brand-faint"}`}>
           {timeOf(msg.ts)}
-          {msg.mine && <Ticks />}
+          {msg.mine && (
+            <span className={msg.read ? "text-[#53bdeb]" : ""}>
+              <Ticks />
+            </span>
+          )}
         </div>
       </div>
     </div>
