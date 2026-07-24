@@ -16,23 +16,29 @@ as $$
 declare
   recipient uuid;
 begin
-  -- the other member of this 1-on-1 conversation
-  select user_id into recipient
-  from public.conversation_members
-  where conversation_id = NEW.conversation_id
-    and user_id <> NEW.sender_id
-  limit 1;
+  -- CRITICAL: this runs AFTER INSERT in the same txn, so any error here would
+  -- roll back the message insert. Guard everything so a push failure can NEVER
+  -- block message delivery.
+  begin
+    select user_id into recipient
+    from public.conversation_members
+    where conversation_id = NEW.conversation_id
+      and user_id <> NEW.sender_id
+    limit 1;
 
-  if recipient is not null then
-    perform net.http_post(
-      url := 'https://zfkxtakrcsqncdxslsvx.supabase.co/functions/v1/send-push',
-      headers := jsonb_build_object(
-        'Content-Type', 'application/json',
-        'Authorization', 'Bearer sb_publishable_GdBDtzb7olfru14Kaauoxw_FVhdrn9v'
-      ),
-      body := jsonb_build_object('recipientId', recipient::text, 'disguised', true)
-    );
-  end if;
+    if recipient is not null then
+      perform net.http_post(
+        url := 'https://zfkxtakrcsqncdxslsvx.supabase.co/functions/v1/send-push',
+        headers := jsonb_build_object(
+          'Content-Type', 'application/json',
+          'Authorization', 'Bearer sb_publishable_GdBDtzb7olfru14Kaauoxw_FVhdrn9v'
+        ),
+        body := jsonb_build_object('recipientId', recipient::text, 'disguised', true)
+      );
+    end if;
+  exception when others then
+    null;  -- swallow push errors; message delivery must always succeed
+  end;
   return NEW;
 end;
 $$;

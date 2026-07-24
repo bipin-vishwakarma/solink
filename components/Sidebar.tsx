@@ -48,7 +48,7 @@ export function Sidebar({
       className={`flex w-full flex-col border-r border-brand-border bg-brand-surface/70 backdrop-blur ${className}`}
     >
       {/* profile header */}
-      <div className="flex items-center gap-3 border-b border-brand-border px-4 py-3">
+      <div className="flex items-center gap-3 border-b border-brand-border px-4 pb-3 pt-[calc(0.75rem+var(--safe-top))]">
         <Link href="/profile" className="transition hover:opacity-80" title="Your profile">
           <Avatar name={myName} size={38} online />
         </Link>
@@ -117,8 +117,8 @@ export function Sidebar({
             <button
               key={c.username}
               onClick={() => onSelect(c.username)}
-              className={`flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition ${
-                active ? "bg-brand-accentSoft" : "hover:bg-white/5"
+              className={`pressable flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition ${
+                active ? "bg-brand-accentSoft" : "hover:bg-white/5 active:bg-white/10"
               }`}
             >
               <Avatar name={c.username} size={40} online={c.online} />

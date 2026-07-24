@@ -393,7 +393,7 @@ export function ChatShell({
   }
 
   return (
-    <main className="flex h-screen overflow-hidden">
+    <main className="flex h-dvh overflow-hidden">
       <Sidebar
         myName={myName}
         contacts={contacts}
@@ -415,7 +415,7 @@ export function ChatShell({
           </div>
         ) : (
           <>
-            <header className="flex items-center gap-3 border-b border-brand-border bg-brand-surface/70 px-3 py-2.5 backdrop-blur sm:px-4">
+            <header className="flex items-center gap-3 border-b border-brand-border bg-brand-surface/70 px-3 pb-2.5 pt-[calc(0.625rem+var(--safe-top))] backdrop-blur sm:px-4">
               <button
                 onClick={() => setActiveContact(null)}
                 className="rounded-lg p-1.5 text-brand-muted hover:bg-white/5 md:hidden"
@@ -489,7 +489,7 @@ export function ChatShell({
             <div
               ref={scrollRef}
               onScroll={onScroll}
-              className={`flex-1 overflow-y-auto ${
+              className={`flex-1 overflow-y-auto overscroll-contain ${
                 stealth ? "bg-ide-bg py-2" : "px-3 py-4 sm:px-5"
               }`}
             >

@@ -8,7 +8,7 @@ export default function ProfilePage() {
   const id = useIdentity();
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-xl flex-col p-4 sm:p-6">
+    <main className="slide-up mx-auto flex min-h-dvh max-w-xl flex-col p-4 pt-[calc(1rem+var(--safe-top))] pb-[calc(1rem+var(--safe-bottom))] sm:p-6">
       <header className="mb-6 flex items-center gap-3">
         <Link href="/settings" className="rounded-lg p-1.5 text-brand-muted hover:bg-white/5" aria-label="Back">
           ←

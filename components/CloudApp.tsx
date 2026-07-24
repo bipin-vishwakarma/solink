@@ -11,7 +11,7 @@ type Phase = "loading" | "signedout" | "needs-username" | "ready";
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <main className="flex min-h-screen items-center justify-center p-6">
+    <main className="flex min-h-dvh items-center justify-center p-6">
       <div className="w-full max-w-sm rounded-3xl border border-brand-border bg-brand-surface/80 p-7 shadow-2xl backdrop-blur">
         <div className="mb-4 flex items-center gap-2 font-mono text-xs text-brand-accent">
           <span className="text-lg">🔗</span> solink

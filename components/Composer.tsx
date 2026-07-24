@@ -68,7 +68,7 @@ export function Composer({
   }, []);
 
   return (
-    <div className="relative border-t border-brand-border bg-brand-surface/70 p-3 backdrop-blur">
+    <div className="relative border-t border-brand-border bg-brand-surface/70 px-3 pt-3 pb-[calc(0.75rem+var(--safe-bottom))] backdrop-blur">
       {showEmoji && (
         <div className="absolute bottom-[68px] left-3 z-10 grid max-h-48 w-64 grid-cols-8 gap-1 overflow-y-auto rounded-2xl border border-brand-border bg-brand-surface2 p-2 shadow-2xl">
           {EMOJIS.map((e) => (
@@ -141,7 +141,7 @@ export function Composer({
         <button
           onClick={submit}
           disabled={disabled || !text.trim()}
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-accent text-white transition hover:bg-brand-accentHover disabled:opacity-40"
+          className="pressable grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-accent text-white transition hover:bg-brand-accentHover disabled:opacity-40"
           aria-label="Send"
           type="button"
         >
