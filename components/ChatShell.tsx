@@ -9,6 +9,7 @@ import { Sidebar, type Contact } from "./Sidebar";
 import { Avatar } from "./Avatar";
 import { Composer } from "./Composer";
 import { TypingDots } from "./TypingDots";
+import { requestNotifyPermission, showMessageNotification, notifyPermission } from "@/lib/notify";
 
 export type TransportFactory = (
   peerUsername: string,
@@ -76,12 +77,38 @@ export function ChatShell({
   const [lastWire, setLastWire] = useState("");
   const [showWire, setShowWire] = useState(true);
   const [peerTyping, setPeerTyping] = useState(false);
+  const [notifyOn, setNotifyOn] = useState(false);
 
   const transportRef = useRef<ChatTransport | null>(null);
   const makeTransportRef = useRef(makeTransport);
   makeTransportRef.current = makeTransport;
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingClear = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Live refs so the (stable) message handler always sees current UI state.
+  const stealthRef = useRef(stealth);
+  stealthRef.current = stealth;
+  const ideRef = useRef(ide);
+  ideRef.current = ide;
+  const notifyRef = useRef(notifyOn);
+  notifyRef.current = notifyOn;
+
+  // restore notification preference
+  useEffect(() => {
+    setNotifyOn(localStorage.getItem("solink:notify") === "1" && notifyPermission() === "granted");
+  }, []);
+
+  async function toggleNotify() {
+    if (notifyOn) {
+      setNotifyOn(false);
+      localStorage.setItem("solink:notify", "0");
+      return;
+    }
+    const perm = await requestNotifyPermission();
+    const on = perm === "granted";
+    setNotifyOn(on);
+    localStorage.setItem("solink:notify", on ? "1" : "0");
+  }
 
   const messages = (activeContact && messagesByContact[activeContact]) || [];
   const contactsKey = `solink:contacts:${myName.toLowerCase()}`;
@@ -139,6 +166,10 @@ export function ChatShell({
           if (typeof document !== "undefined" && document.hidden) {
             playPing();
             document.title = "● New message";
+            if (notifyRef.current) {
+              // Disguise-aware: hide sender + content while in stealth or panic mode.
+              showMessageNotification(activeContact, text, stealthRef.current || ideRef.current);
+            }
           }
         }
       },
@@ -283,6 +314,15 @@ export function ChatShell({
                   )}
                 </div>
               </div>
+              <button
+                onClick={toggleNotify}
+                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+                  notifyOn ? "bg-brand-accent/20 text-brand-accent" : "text-brand-faint hover:bg-white/5"
+                }`}
+                title={notifyOn ? "Notifications on" : "Enable notifications"}
+              >
+                {notifyOn ? "🔔" : "🔕"}
+              </button>
               <button
                 onClick={() => setShowWire((v) => !v)}
                 className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${
