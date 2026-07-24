@@ -24,6 +24,7 @@ alter table public.message_reads enable row level security;
 -- 3. Policies.
 
 -- A user may mark a message as read only for THEMSELVES.
+drop policy if exists "message_reads: insert own read" on public.message_reads;
 create policy "message_reads: insert own read"
   on public.message_reads
   for insert
@@ -31,6 +32,7 @@ create policy "message_reads: insert own read"
   with check (reader_id = auth.uid());
 
 -- A user may SELECT read rows for messages in conversations they belong to.
+drop policy if exists "message_reads: select in own conversations" on public.message_reads;
 create policy "message_reads: select in own conversations"
   on public.message_reads
   for select
@@ -44,5 +46,15 @@ create policy "message_reads: select in own conversations"
     )
   );
 
--- 4. Broadcast read receipts over Realtime so senders see them live.
-alter publication supabase_realtime add table public.message_reads;
+-- 4. Broadcast read receipts over Realtime so senders see them live (idempotent).
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'message_reads'
+  ) then
+    alter publication supabase_realtime add table public.message_reads;
+  end if;
+end $$;

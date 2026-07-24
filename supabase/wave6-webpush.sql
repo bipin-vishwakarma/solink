@@ -21,18 +21,21 @@ alter table public.push_subscriptions enable row level security;
 
 -- 3. Policies — users manage only their own subscription rows.
 
+drop policy if exists "push_subscriptions: insert own" on public.push_subscriptions;
 create policy "push_subscriptions: insert own"
   on public.push_subscriptions
   for insert
   to authenticated
   with check (user_id = auth.uid());
 
+drop policy if exists "push_subscriptions: select own" on public.push_subscriptions;
 create policy "push_subscriptions: select own"
   on public.push_subscriptions
   for select
   to authenticated
   using (user_id = auth.uid());
 
+drop policy if exists "push_subscriptions: delete own" on public.push_subscriptions;
 create policy "push_subscriptions: delete own"
   on public.push_subscriptions
   for delete

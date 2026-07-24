@@ -20,6 +20,7 @@ on conflict (id) do nothing;
 --    (RLS is already enabled on storage.objects by Supabase.)
 
 -- Allow authenticated users to UPLOAD (INSERT) encrypted attachments.
+drop policy if exists "attachments: authenticated can upload" on storage.objects;
 create policy "attachments: authenticated can upload"
   on storage.objects
   for insert
@@ -28,6 +29,7 @@ create policy "attachments: authenticated can upload"
 
 -- Allow authenticated users to READ (SELECT) encrypted attachments.
 -- Safe because the bytes are E2E-encrypted ciphertext (see rationale above).
+drop policy if exists "attachments: authenticated can read" on storage.objects;
 create policy "attachments: authenticated can read"
   on storage.objects
   for select
@@ -35,6 +37,7 @@ create policy "attachments: authenticated can read"
   using (bucket_id = 'attachments');
 
 -- Allow authenticated users to DELETE only the objects they uploaded.
+drop policy if exists "attachments: owner can delete" on storage.objects;
 create policy "attachments: owner can delete"
   on storage.objects
   for delete
