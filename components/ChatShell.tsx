@@ -10,6 +10,7 @@ import { Avatar } from "./Avatar";
 import { Composer } from "./Composer";
 import { TypingDots } from "./TypingDots";
 import { requestNotifyPermission, showMessageNotification, notifyPermission } from "@/lib/notify";
+import { encodeMessage, decodeMessage } from "@/lib/envelope";
 
 export type TransportFactory = (
   peerUsername: string,
@@ -78,12 +79,15 @@ export function ChatShell({
   const [showWire, setShowWire] = useState(true);
   const [peerTyping, setPeerTyping] = useState(false);
   const [notifyOn, setNotifyOn] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const transportRef = useRef<ChatTransport | null>(null);
   const makeTransportRef = useRef(makeTransport);
   makeTransportRef.current = makeTransport;
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingClear = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const atBottomRef = useRef(true);
 
   // Live refs so the (stable) message handler always sees current UI state.
   const stealthRef = useRef(stealth);
@@ -138,6 +142,7 @@ export function ChatShell({
     setSimulated(false);
     setError(null);
     setPeerTyping(false);
+    setReplyingTo(null);
 
     const events: TransportEvents = {
       onPeer: (pn, sim) => {
@@ -145,7 +150,8 @@ export function ChatShell({
         setSimulated(sim);
         setConnecting(false);
       },
-      onMessage: (text, payload, mine) => {
+      onMessage: (raw, payload, mine) => {
+        const { text, replyTo } = decodeMessage(raw);
         setPeerTyping(false);
         setMessagesByContact((prev) => {
           const list = prev[activeContact] || [];
@@ -154,7 +160,7 @@ export function ChatShell({
             ...prev,
             [activeContact]: [
               ...list,
-              { id: payload.id, mine, text, ts: payload.ts, senderName: payload.senderName },
+              { id: payload.id, mine, text, ts: payload.ts, senderName: payload.senderName, replyTo },
             ],
           };
         });
@@ -223,14 +229,34 @@ export function ChatShell({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Auto-scroll only when the user is already near the bottom (or just sent something).
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    if (atBottomRef.current) {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    }
   }, [messages.length, peerTyping]);
+
+  function onScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    atBottomRef.current = dist < 80;
+    setShowScrollBtn(dist > 240);
+  }
+
+  function scrollToBottom() {
+    atBottomRef.current = true;
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }
 
   async function send(text: string) {
     const t = transportRef.current;
     if (!t || !activeContact) return;
-    const payload = await t.send(text);
+    const reply = replyingTo
+      ? { id: replyingTo.id, preview: replyingTo.text.slice(0, 90), mine: replyingTo.mine }
+      : undefined;
+    atBottomRef.current = true;
+    const payload = await t.send(encodeMessage(text, reply));
     if (!payload) return;
     setMessagesByContact((prev) => {
       const list = prev[activeContact] || [];
@@ -239,11 +265,12 @@ export function ChatShell({
         ...prev,
         [activeContact]: [
           ...list,
-          { id: payload.id, mine: true, text, ts: payload.ts, senderName: myName },
+          { id: payload.id, mine: true, text, ts: payload.ts, senderName: myName, replyTo: reply },
         ],
       };
     });
     setContacts((prev) => prev.map((c) => (c.username === activeContact ? { ...c, lastText: text } : c)));
+    setReplyingTo(null);
   }
 
   function connectTo(username: string) {
@@ -276,7 +303,7 @@ export function ChatShell({
         className={`md:w-80 md:shrink-0 ${activeContact ? "hidden md:flex" : "flex"}`}
       />
 
-      <section className={`min-w-0 flex-1 flex-col ${activeContact ? "flex" : "hidden md:flex"}`}>
+      <section className={`relative min-w-0 flex-1 flex-col ${activeContact ? "flex" : "hidden md:flex"}`}>
         {!activeContact ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
             <div className="mb-4 text-5xl">🔗</div>
@@ -298,7 +325,7 @@ export function ChatShell({
               <Avatar name={activeContact} size={40} online={!!peerName} bot={simulated} />
               <div className="min-w-0 flex-1">
                 <div className="truncate font-semibold text-brand-text">{activeContact}</div>
-                <div className="font-mono text-[11px] text-brand-muted">
+                <div className="truncate font-mono text-[11px] text-brand-muted">
                   {error ? (
                     <span className="text-red-400">{error}</span>
                   ) : peerTyping ? (
@@ -314,44 +341,47 @@ export function ChatShell({
                   )}
                 </div>
               </div>
-              <button
-                onClick={toggleNotify}
-                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${
-                  notifyOn ? "bg-brand-accent/20 text-brand-accent" : "text-brand-faint hover:bg-white/5"
-                }`}
-                title={notifyOn ? "Notifications on" : "Enable notifications"}
-              >
-                {notifyOn ? "🔔" : "🔕"}
-              </button>
-              <button
-                onClick={() => setShowWire((v) => !v)}
-                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${
-                  showWire ? "bg-white/5 text-brand-muted" : "text-brand-faint hover:bg-white/5"
-                }`}
-                title="Toggle the encrypted-wire preview"
-              >
-                🛡
-              </button>
-              <button
-                onClick={() => setStealth((v) => !v)}
-                className={`rounded-lg px-3 py-1 text-xs font-medium transition ${
-                  stealth ? "bg-brand-accent text-white" : "bg-white/5 text-brand-muted hover:bg-white/10"
-                }`}
-                title="Ctrl+Shift+,"
-              >
-                {stealth ? "stealth on" : "stealth"}
-              </button>
-              <button
-                onClick={() => setIde(true)}
-                className="rounded-lg bg-white/5 px-3 py-1 text-xs font-medium text-brand-muted transition hover:bg-white/10"
-                title="Ctrl+Shift+."
-              >
-                panic
-              </button>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  onClick={toggleNotify}
+                  className={`rounded-lg px-2 py-1 text-xs font-medium transition ${
+                    notifyOn ? "bg-brand-accent/20 text-brand-accent" : "text-brand-faint hover:bg-white/5"
+                  }`}
+                  title={notifyOn ? "Notifications on" : "Enable notifications"}
+                >
+                  {notifyOn ? "🔔" : "🔕"}
+                </button>
+                <button
+                  onClick={() => setShowWire((v) => !v)}
+                  className={`rounded-lg px-2 py-1 text-xs font-medium transition ${
+                    showWire ? "bg-white/5 text-brand-muted" : "text-brand-faint hover:bg-white/5"
+                  }`}
+                  title="Toggle the encrypted-wire preview"
+                >
+                  🛡
+                </button>
+                <button
+                  onClick={() => setStealth((v) => !v)}
+                  className={`rounded-lg px-2 py-1 text-xs font-medium transition ${
+                    stealth ? "bg-brand-accent text-white" : "bg-white/5 text-brand-muted hover:bg-white/10"
+                  }`}
+                  title="Stealth (Ctrl+Shift+,)"
+                >
+                  {stealth ? "🥷" : "🕶"}
+                </button>
+                <button
+                  onClick={() => setIde(true)}
+                  className="rounded-lg bg-white/5 px-2 py-1 text-xs font-medium text-brand-muted transition hover:bg-white/10"
+                  title="Panic → IDE (Ctrl+Shift+.)"
+                >
+                  🚨
+                </button>
+              </div>
             </header>
 
             <div
               ref={scrollRef}
+              onScroll={onScroll}
               className={`flex-1 overflow-y-auto ${
                 stealth ? "bg-ide-bg py-2" : "px-3 py-4 sm:px-5"
               }`}
@@ -389,7 +419,7 @@ export function ChatShell({
                             </span>
                           </div>
                         )}
-                        <MessageBubble msg={m} grouped={grouped} />
+                        <MessageBubble msg={m} grouped={grouped} onReply={setReplyingTo} />
                       </div>
                     );
                   })}
@@ -400,10 +430,41 @@ export function ChatShell({
               )}
             </div>
 
+            {showScrollBtn && !stealth && (
+              <button
+                onClick={scrollToBottom}
+                className="absolute bottom-28 right-4 z-10 grid h-10 w-10 place-items-center rounded-full border border-brand-border bg-brand-surface2 text-brand-text shadow-lg transition hover:bg-brand-surface"
+                aria-label="Scroll to latest"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
+
             {showWire && lastWire && (
               <div className="flex items-center gap-2 border-t border-brand-border bg-black/30 px-4 py-1 font-mono text-[10px] text-brand-faint">
                 <span className="text-brand-online/80">wire ▸</span>
                 <span className="truncate">{lastWire.slice(0, 80)}…</span>
+              </div>
+            )}
+
+            {replyingTo && (
+              <div className="flex items-center gap-2 border-t border-brand-border bg-brand-surface/70 px-3 py-2 backdrop-blur">
+                <div className="w-1 self-stretch rounded-full bg-brand-accent" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-medium text-brand-accent">
+                    Replying to {replyingTo.mine ? "yourself" : activeContact}
+                  </div>
+                  <div className="truncate text-xs text-brand-muted">{replyingTo.text}</div>
+                </div>
+                <button
+                  onClick={() => setReplyingTo(null)}
+                  className="rounded-full p-1 text-brand-muted hover:bg-white/10 hover:text-brand-text"
+                  aria-label="Cancel reply"
+                >
+                  ✕
+                </button>
               </div>
             )}
 

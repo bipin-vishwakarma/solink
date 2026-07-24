@@ -7,7 +7,6 @@ function timeOf(ts: number): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-/** Double-check tick (delivered look), à la WhatsApp — visual only. */
 function Ticks() {
   return (
     <svg width="16" height="11" viewBox="0 0 18 12" fill="none" className="inline-block align-middle">
@@ -17,36 +16,105 @@ function Ticks() {
   );
 }
 
+const URL_SPLIT = /(https?:\/\/[^\s]+)/g;
+const IS_URL = /^https?:\/\/[^\s]+$/;
+
+/** Render text with clickable links. */
+function Linkified({ text, mine }: { text: string; mine: boolean }) {
+  const parts = text.split(URL_SPLIT);
+  return (
+    <>
+      {parts.map((part, i) =>
+        IS_URL.test(part) ? (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className={`underline underline-offset-2 ${mine ? "text-white" : "text-brand-accent"}`}
+          >
+            {part}
+          </a>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
 export function MessageBubble({
   msg,
   grouped = false,
+  onReply,
 }: {
   msg: ChatMessage;
-  grouped?: boolean; // true when it follows another message from the same sender
+  grouped?: boolean;
+  onReply?: (m: ChatMessage) => void;
 }) {
+  function copy() {
+    navigator.clipboard?.writeText(msg.text).catch(() => {});
+  }
+
+  const actions = (
+    <div
+      className={`flex shrink-0 items-center gap-1 self-center opacity-0 transition group-hover:opacity-100 ${
+        msg.mine ? "order-first" : ""
+      }`}
+    >
+      {onReply && (
+        <button
+          onClick={() => onReply(msg)}
+          className="rounded-full bg-brand-surface2 p-1.5 text-brand-muted hover:text-brand-text"
+          title="Reply"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <path d="M9 17l-6-5 6-5v3c6 0 9 3 10 8-2.5-2.5-5-4-10-4v3z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+          </svg>
+        </button>
+      )}
+      <button
+        onClick={copy}
+        className="rounded-full bg-brand-surface2 p-1.5 text-brand-muted hover:text-brand-text"
+        title="Copy"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+          <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.8" />
+          <path d="M5 15V5a2 2 0 012-2h10" stroke="currentColor" strokeWidth="1.8" />
+        </svg>
+      </button>
+    </div>
+  );
+
   return (
-    <div className={`pop-in flex ${msg.mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-2"}`}>
+    <div className={`group flex items-center gap-2 ${msg.mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-2"}`}>
+      {actions}
       <div
-        className={`max-w-[76%] px-3.5 py-2 text-[14.5px] leading-snug shadow-sm ${
+        className={`pop-in max-w-[76%] px-3.5 py-2 text-[14.5px] leading-snug shadow-sm ${
           msg.mine
             ? "bg-gradient-to-br from-brand-accent to-[#b5533a] text-white"
             : "border border-brand-border bg-brand-surface2 text-brand-text"
         } ${
           msg.mine
-            ? grouped
-              ? "rounded-2xl rounded-br-sm"
-              : "rounded-2xl rounded-tr-md rounded-br-sm"
-            : grouped
-              ? "rounded-2xl rounded-bl-sm"
-              : "rounded-2xl rounded-tl-md rounded-bl-sm"
+            ? grouped ? "rounded-2xl rounded-br-sm" : "rounded-2xl rounded-tr-md rounded-br-sm"
+            : grouped ? "rounded-2xl rounded-bl-sm" : "rounded-2xl rounded-tl-md rounded-bl-sm"
         }`}
       >
-        <div className="whitespace-pre-wrap break-words">{msg.text}</div>
-        <div
-          className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${
-            msg.mine ? "text-white/75" : "text-brand-faint"
-          }`}
-        >
+        {msg.replyTo && (
+          <div
+            className={`mb-1 rounded-lg border-l-2 px-2 py-1 text-[12px] ${
+              msg.mine ? "border-white/70 bg-black/15 text-white/80" : "border-brand-accent bg-black/20 text-brand-muted"
+            }`}
+          >
+            <div className="font-medium opacity-80">{msg.replyTo.mine ? "You" : "Them"}</div>
+            <div className="truncate opacity-90">{msg.replyTo.preview}</div>
+          </div>
+        )}
+        <div className="whitespace-pre-wrap break-words">
+          <Linkified text={msg.text} mine={msg.mine} />
+        </div>
+        <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${msg.mine ? "text-white/75" : "text-brand-faint"}`}>
           {timeOf(msg.ts)}
           {msg.mine && <Ticks />}
         </div>

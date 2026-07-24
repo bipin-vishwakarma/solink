@@ -1,9 +1,16 @@
+export interface ReplyRef {
+  id: string;
+  preview: string; // short quoted snippet of the original
+  mine: boolean; // was the quoted message ours?
+}
+
 export interface ChatMessage {
   id: string;
   mine: boolean; // true if sent by this device
   text: string; // decrypted plaintext — lives only in memory
   ts: number;
   senderName: string;
+  replyTo?: ReplyRef;
 }
 
 // What actually travels over the wire — no plaintext, ever.
