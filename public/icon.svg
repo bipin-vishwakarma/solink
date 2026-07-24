@@ -1,11 +1,30 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="solinkTile" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#d97757"/>
       <stop offset="1" stop-color="#b5533a"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="112" fill="url(#g)"/>
-  <text x="50%" y="53%" dominant-baseline="central" text-anchor="middle"
-        font-family="system-ui, Segoe UI, Arial, sans-serif" font-size="300" font-weight="700" fill="#ffffff">S</text>
+  <rect width="512" height="512" rx="112" fill="url(#solinkTile)"/>
+  <!-- Chat bubble: rounded body + tail, drawn as one path -->
+  <path fill="#ffffff" d="
+    M168 108
+    h176
+    a76 76 0 0 1 76 76
+    v104
+    a76 76 0 0 1 -76 76
+    h-92
+    l-70 62
+    a10 10 0 0 1 -16.5 -7.7
+    l0 -54.3
+    a76 76 0 0 1 -49.5 -76
+    v-104
+    a76 76 0 0 1 76 -76
+    z"/>
+  <!-- Code brackets </> inside the bubble -->
+  <g fill="none" stroke="url(#solinkTile)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="212,186 168,236 212,286"/>
+    <polyline points="300,186 344,236 300,286"/>
+    <line x1="272" y1="176" x2="240" y2="296"/>
+  </g>
 </svg>

@@ -47,6 +47,8 @@ export class SupabaseTransport implements ChatTransport {
   private peer: Profile | null = null;
   private channel: ReturnType<SupabaseClient["channel"]> | null = null;
   private extrasChannel: ReturnType<SupabaseClient["channel"]> | null = null;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private seen = new Set<string>(); // message ids already delivered to the UI
 
   constructor(
     private peerUsername: string,
@@ -100,7 +102,7 @@ export class SupabaseTransport implements ChatTransport {
       .order("created_at", { ascending: true });
 
     for (const row of (history as MessageRow[] | null) || []) {
-      await this.emitRow(row, /* live */ false);
+      await this.deliver(row, /* live */ false);
     }
 
     // 5a. PRIMARY channel — live messages + typing ONLY. Kept minimal and isolated so
@@ -118,7 +120,7 @@ export class SupabaseTransport implements ChatTransport {
         (payload) => {
           const row = payload.new as MessageRow;
           if (row.sender_id === this.ctx.userId) return; // we added our own optimistically
-          void this.emitRow(row, true);
+          void this.deliver(row, true);
         }
       )
       .on("broadcast", { event: "typing" }, ({ payload }) => {
@@ -154,8 +156,38 @@ export class SupabaseTransport implements ChatTransport {
         }
       });
 
+    // 5c. Polling safety net — guarantees delivery even if realtime ever hiccups.
+    //     Deduped against realtime by message id, so it never double-shows.
+    this.pollTimer = setInterval(() => void this.poll(), 3000);
+
     // 6. Ready.
     this.events.onPeer(this.peer.username, false);
+  }
+
+  /** Deliver a row exactly once (dedup across realtime + polling + history). */
+  private async deliver(row: MessageRow, live: boolean) {
+    if (this.seen.has(row.id)) return;
+    this.seen.add(row.id);
+    await this.emitRow(row, live);
+  }
+
+  /** Fetch recent messages and deliver any the realtime feed missed. */
+  private async poll() {
+    if (!this.conversationId) return;
+    const { data } = await this.sb
+      .from("messages")
+      .select("id, conversation_id, sender_id, ciphertext, iv, created_at")
+      .eq("conversation_id", this.conversationId)
+      .order("created_at", { ascending: false })
+      .limit(30);
+    const rows = ((data as MessageRow[] | null) || []).reverse();
+    for (const row of rows) {
+      if (row.sender_id === this.ctx.userId) {
+        this.seen.add(row.id); // our own — already shown optimistically
+        continue;
+      }
+      await this.deliver(row, true);
+    }
   }
 
   private async emitRow(row: MessageRow, live: boolean) {
@@ -199,6 +231,7 @@ export class SupabaseTransport implements ChatTransport {
       this.events.onError?.(error?.message || "Failed to send");
       return null;
     }
+    this.seen.add(data.id as string); // don't let polling re-deliver our own message
     this.events.onWireLog(enc.ciphertext);
     return {
       id: data.id as string,
@@ -258,6 +291,10 @@ export class SupabaseTransport implements ChatTransport {
   }
 
   destroy() {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
     if (this.channel) {
       void this.sb.removeChannel(this.channel);
       this.channel = null;
