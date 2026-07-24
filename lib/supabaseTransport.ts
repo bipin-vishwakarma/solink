@@ -46,6 +46,7 @@ export class SupabaseTransport implements ChatTransport {
   private conversationId: string | null = null;
   private peer: Profile | null = null;
   private channel: ReturnType<SupabaseClient["channel"]> | null = null;
+  private extrasChannel: ReturnType<SupabaseClient["channel"]> | null = null;
 
   constructor(
     private peerUsername: string,
@@ -102,7 +103,8 @@ export class SupabaseTransport implements ChatTransport {
       await this.emitRow(row, /* live */ false);
     }
 
-    // 5. Subscribe to new messages in real time (+ ephemeral typing broadcasts).
+    // 5a. PRIMARY channel — live messages + typing ONLY. Kept minimal and isolated so
+    //     nothing else can ever break message delivery (this is the known-good path).
     this.channel = this.sb
       .channel(`conv:${this.conversationId}`)
       .on(
@@ -124,18 +126,23 @@ export class SupabaseTransport implements ChatTransport {
           this.events.onTyping?.(!!payload.isTyping);
         }
       })
+      .subscribe();
+
+    // 5b. SECONDARY channel — read receipts + presence. If this fails to subscribe
+    //     (e.g. realtime not enabled for message_reads), messaging is UNAFFECTED.
+    this.extrasChannel = this.sb
+      .channel(`conv-extras:${this.conversationId}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "message_reads" },
         (payload) => {
           const row = payload.new as { message_id: string; reader_id: string };
-          // RLS already limits these to our conversations; ignore our own reads.
           if (row.reader_id !== this.ctx.userId) this.events.onRead?.([row.message_id]);
         }
       )
       .on("presence", { event: "sync" }, () => {
-        if (!this.channel) return;
-        const state = this.channel.presenceState() as Record<string, Array<{ user?: string }>>;
+        if (!this.extrasChannel) return;
+        const state = this.extrasChannel.presenceState() as Record<string, Array<{ user?: string }>>;
         const online = Object.values(state).some((entries) =>
           entries.some((e) => e.user === this.peer?.id)
         );
@@ -143,7 +150,7 @@ export class SupabaseTransport implements ChatTransport {
       })
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
-          void this.channel?.track({ user: this.ctx.userId, at: Date.now() });
+          void this.extrasChannel?.track({ user: this.ctx.userId, at: Date.now() });
         }
       });
 
@@ -254,6 +261,10 @@ export class SupabaseTransport implements ChatTransport {
     if (this.channel) {
       void this.sb.removeChannel(this.channel);
       this.channel = null;
+    }
+    if (this.extrasChannel) {
+      void this.sb.removeChannel(this.extrasChannel);
+      this.extrasChannel = null;
     }
   }
 }
