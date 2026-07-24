@@ -1,0 +1,200 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabase, type Profile } from "@/lib/supabaseClient";
+import { getOrCreateKeyPair, exportPublicKey } from "@/lib/crypto";
+import { SupabaseTransport, type CloudContext } from "@/lib/supabaseTransport";
+import { ChatShell, type TransportFactory } from "./ChatShell";
+
+type Phase = "loading" | "signedout" | "needs-username" | "ready";
+
+function Card({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center p-6">
+      <div className="w-full max-w-sm rounded-3xl border border-brand-border bg-brand-surface/80 p-7 shadow-2xl backdrop-blur">
+        <div className="mb-4 flex items-center gap-2 font-mono text-xs text-brand-accent">
+          <span className="text-lg">🔗</span> solink
+          <span className="ml-auto rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-brand-faint">
+            cloud
+          </span>
+        </div>
+        {children}
+      </div>
+    </main>
+  );
+}
+
+export function CloudApp() {
+  const sb = supabase as SupabaseClient; // CloudApp only renders when configured
+  const [phase, setPhase] = useState<Phase>("loading");
+  const [userId, setUserId] = useState<string | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [keyPair, setKeyPair] = useState<CryptoKeyPair | null>(null);
+  const [usernameDraft, setUsernameDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function handleUser(id: string | null) {
+      if (!mounted) return;
+      setUserId(id);
+      if (!id) {
+        setProfile(null);
+        setPhase("signedout");
+        return;
+      }
+      const kp = await getOrCreateKeyPair();
+      if (!mounted) return;
+      setKeyPair(kp);
+      const { data: prof } = await sb
+        .from("profiles")
+        .select("id, username, public_key")
+        .eq("id", id)
+        .maybeSingle();
+      if (!mounted) return;
+      if (prof && prof.username) {
+        setProfile(prof as Profile);
+        setPhase("ready");
+      } else {
+        setPhase("needs-username");
+      }
+    }
+
+    sb.auth.getSession().then(({ data }) => handleUser(data.session?.user?.id ?? null));
+    const { data: sub } = sb.auth.onAuthStateChange((_e, session) =>
+      handleUser(session?.user?.id ?? null)
+    );
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, [sb]);
+
+  const makeTransport = useCallback<TransportFactory>(
+    (peer, events) => {
+      const ctx: CloudContext = {
+        supabase: sb,
+        userId: userId as string,
+        username: (profile as Profile).username,
+        keyPair: keyPair as CryptoKeyPair,
+      };
+      return new SupabaseTransport(peer, events, ctx);
+    },
+    [sb, userId, profile, keyPair]
+  );
+
+  function signIn() {
+    void sb.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+  }
+
+  async function signOut() {
+    await sb.auth.signOut();
+    setProfile(null);
+    setPhase("signedout");
+  }
+
+  async function createProfile() {
+    const uname = usernameDraft.trim();
+    if (!uname || !userId) return;
+    if (!/^[a-zA-Z0-9_]{2,20}$/.test(uname)) {
+      setErr("2–20 chars: letters, numbers, underscore");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    const kp = keyPair || (await getOrCreateKeyPair());
+    const pub = await exportPublicKey(kp.publicKey);
+    const { error } = await sb
+      .from("profiles")
+      .insert({ id: userId, username: uname, public_key: pub });
+    setBusy(false);
+    if (error) {
+      setErr(error.code === "23505" ? "That username is taken" : error.message);
+      return;
+    }
+    setProfile({ id: userId, username: uname, public_key: pub });
+    setPhase("ready");
+  }
+
+  // ---------- render ----------
+  if (phase === "loading") {
+    return (
+      <Card>
+        <div className="py-6 text-center text-sm text-brand-muted">Loading…</div>
+      </Card>
+    );
+  }
+
+  if (phase === "signedout") {
+    return (
+      <Card>
+        <h1 className="mb-2 text-[26px] font-semibold leading-tight text-brand-text">
+          Encrypted chat,<br />disguised as code
+        </h1>
+        <p className="mb-6 text-sm text-brand-muted">
+          Sign in to get a username and start end-to-end encrypted chats that sync across your
+          sessions.
+        </p>
+        <button
+          onClick={signIn}
+          className="flex w-full items-center justify-center gap-3 rounded-xl border border-brand-border bg-white py-2.5 font-medium text-[#1f1f1f] transition hover:bg-white/90"
+        >
+          <svg width="18" height="18" viewBox="0 0 48 48">
+            <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.3 17.7 9.5 24 9.5z" />
+            <path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.1 5.3-4.5 7l7 5.4c4.1-3.8 6.2-9.4 6.2-16.9z" />
+            <path fill="#FBBC05" d="M10.4 28.3c-.5-1.4-.8-2.9-.8-4.3s.3-3 .8-4.3l-7.8-6.1C.9 16.7 0 20.2 0 24s.9 7.3 2.6 10.4l7.8-6.1z" />
+            <path fill="#34A853" d="M24 48c6.2 0 11.4-2 15.2-5.6l-7-5.4c-2 1.4-4.6 2.2-8.2 2.2-6.3 0-11.7-3.8-13.6-9.3l-7.8 6.1C6.5 42.6 14.6 48 24 48z" />
+          </svg>
+          Continue with Google
+        </button>
+        <p className="mt-5 text-center font-mono text-[11px] text-brand-faint">
+          Ctrl+Shift+.  panic (IDE) · Ctrl+Shift+,  stealth
+        </p>
+      </Card>
+    );
+  }
+
+  if (phase === "needs-username") {
+    return (
+      <Card>
+        <h1 className="mb-2 text-[22px] font-semibold text-brand-text">Pick a username</h1>
+        <p className="mb-5 text-sm text-brand-muted">
+          This is how friends find you. Your device also generates an encryption key now.
+        </p>
+        <div className="flex items-center rounded-xl border border-brand-border bg-black/25 px-3 focus-within:border-brand-accent">
+          <span className="text-brand-faint">@</span>
+          <input
+            autoFocus
+            value={usernameDraft}
+            onChange={(e) => setUsernameDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && createProfile()}
+            placeholder="bipin"
+            className="w-full bg-transparent px-2 py-2.5 text-brand-text outline-none"
+          />
+        </div>
+        {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
+        <button
+          onClick={createProfile}
+          disabled={busy}
+          className="mt-4 w-full rounded-xl bg-brand-accent py-2.5 font-medium text-white transition hover:bg-brand-accentHover disabled:opacity-60"
+        >
+          {busy ? "Creating…" : "Claim username"}
+        </button>
+        <button
+          onClick={signOut}
+          className="mt-3 w-full text-center text-xs text-brand-faint hover:text-brand-muted"
+        >
+          sign out
+        </button>
+      </Card>
+    );
+  }
+
+  return <ChatShell myName={(profile as Profile).username} makeTransport={makeTransport} onSignOut={signOut} />;
+}
