@@ -190,10 +190,48 @@ export class SupabaseTransport implements ChatTransport {
     }
   }
 
+  /** Re-fetch the peer's current public key and re-derive the shared key. */
+  private async reDeriveKey(): Promise<boolean> {
+    if (!this.peer) return false;
+    const { data } = await this.sb
+      .from("profiles")
+      .select("public_key")
+      .eq("id", this.peer.id)
+      .maybeSingle();
+    if (!data?.public_key) return false;
+    try {
+      const theirPub = await importPublicKey(data.public_key);
+      this.sharedKey = await deriveSharedKey(this.ctx.keyPair.privateKey, theirPub);
+      this.peer.public_key = data.public_key;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async decryptText(row: MessageRow): Promise<string | null> {
+    if (!this.sharedKey) return null;
+    try {
+      return await decryptMessage(this.sharedKey, { ciphertext: row.ciphertext, iv: row.iv });
+    } catch {
+      // Key may have rotated (peer cleared data / new device). Re-fetch their
+      // current public key, re-derive, and try once more — self-heals key drift.
+      if (await this.reDeriveKey()) {
+        try {
+          return await decryptMessage(this.sharedKey!, { ciphertext: row.ciphertext, iv: row.iv });
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+  }
+
   private async emitRow(row: MessageRow, live: boolean) {
     if (!this.sharedKey) return;
-    try {
-      const text = await decryptMessage(this.sharedKey, { ciphertext: row.ciphertext, iv: row.iv });
+    const text = await this.decryptText(row);
+    if (text === null) return; // truly undecryptable (old message from a lost key)
+    {
       const mine = row.sender_id === this.ctx.userId;
       if (live) this.events.onWireLog(row.ciphertext);
       this.events.onMessage(
@@ -207,8 +245,6 @@ export class SupabaseTransport implements ChatTransport {
         },
         mine
       );
-    } catch {
-      /* undecryptable (e.g. sent from another device with a different key) */
     }
   }
 
