@@ -1,13 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-
-const EMOJIS = [
-  "😀", "😂", "🤣", "😊", "😍", "😎", "🥳", "😉", "😭", "😱",
-  "👍", "👎", "🙏", "👏", "🙌", "💪", "🔥", "✨", "💯", "🎉",
-  "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "💔", "😅", "😴",
-  "🤔", "🙄", "😏", "😬", "🤝", "👀", "💀", "🤙", "✌️", "🫡",
-];
+import { EmojiPicker } from "./EmojiPicker";
 
 export function Composer({
   onSend,
@@ -70,19 +64,14 @@ export function Composer({
   return (
     <div className="relative border-t border-brand-border bg-brand-surface/70 px-3 pt-3 pb-[calc(0.75rem+var(--safe-bottom))] backdrop-blur">
       {showEmoji && (
-        <div className="absolute bottom-[68px] left-3 z-10 grid max-h-48 w-64 grid-cols-8 gap-1 overflow-y-auto rounded-2xl border border-brand-border bg-brand-surface2 p-2 shadow-2xl">
-          {EMOJIS.map((e) => (
-            <button
-              key={e}
-              onClick={() => {
-                handleChange(text + e);
-                taRef.current?.focus();
-              }}
-              className="rounded-lg p-1 text-xl transition hover:bg-white/10"
-            >
-              {e}
-            </button>
-          ))}
+        <div className="absolute bottom-[68px] left-2 z-20">
+          <EmojiPicker
+            onPick={(e) => {
+              handleChange(text + e);
+              taRef.current?.focus();
+            }}
+            onClose={() => setShowEmoji(false)}
+          />
         </div>
       )}
 
