@@ -56,6 +56,21 @@ export function CloudApp() {
         .maybeSingle();
       if (!mounted) return;
       if (prof && prof.username) {
+        // Keep the DB copy of THIS device's public key current. The private key
+        // lives only in this browser; if it changed (cleared data, incognito, new
+        // browser) the stored public key would be stale and peers would encrypt to
+        // a key we can't decrypt with — messages arrive but silently fail to decrypt.
+        // Re-syncing on every login guarantees peers encrypt to the key we hold.
+        try {
+          const pub = await exportPublicKey(kp.publicKey);
+          if (prof.public_key !== pub) {
+            await sb.from("profiles").update({ public_key: pub }).eq("id", id);
+            (prof as Profile).public_key = pub;
+          }
+        } catch {
+          /* non-fatal */
+        }
+        if (!mounted) return;
         setProfile(prof as Profile);
         setPhase("ready");
       } else {
