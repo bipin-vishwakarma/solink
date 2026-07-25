@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AttachmentRef, ChatMessage, ChatTransport, TransportEvents } from "@/lib/types";
+import type { AttachmentRef, ChatMessage, ChatTransport, InboxActivity, TransportEvents } from "@/lib/types";
 import { MessageBubble } from "./MessageBubble";
 import { CodeSnippet } from "./CodeSnippet";
 import { BossModeIDE } from "./BossModeIDE";
@@ -58,10 +58,12 @@ function playPing() {
 export function ChatShell({
   myName,
   makeTransport,
+  makeInboxSubscription,
   onSignOut,
 }: {
   myName: string;
   makeTransport: TransportFactory;
+  makeInboxSubscription?: (onActivity: (a: InboxActivity) => void) => () => void;
   onSignOut?: () => void;
 }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -88,6 +90,10 @@ export function ChatShell({
   const transportRef = useRef<ChatTransport | null>(null);
   const makeTransportRef = useRef(makeTransport);
   makeTransportRef.current = makeTransport;
+  const inboxRef = useRef(makeInboxSubscription);
+  inboxRef.current = makeInboxSubscription;
+  const activeContactRef = useRef(activeContact);
+  activeContactRef.current = activeContact;
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingClear = useRef<ReturnType<typeof setTimeout> | null>(null);
   const markedRef = useRef<Set<string>>(new Set());
@@ -137,6 +143,53 @@ export function ChatShell({
     },
     [contactsKey]
   );
+
+  // LIVE INBOX: a global listener for messages in ANY of my conversations — drives
+  // recent-on-top sorting, unread badges, and cross-chat notifications. Runs on a
+  // separate channel from the chat transport, so it can never affect message delivery.
+  useEffect(() => {
+    if (!inboxRef.current) return;
+    const unsub = inboxRef.current((a) => {
+      const uname = a.fromUsername;
+      const isActive = uname.toLowerCase() === (activeContactRef.current || "").toLowerCase();
+      setContacts((prev) => {
+        const exists = prev.some((c) => c.username.toLowerCase() === uname.toLowerCase());
+        const next = exists
+          ? prev.map((c) =>
+              c.username.toLowerCase() === uname.toLowerCase()
+                ? {
+                    ...c,
+                    online: true,
+                    lastActivity: Math.max(c.lastActivity || 0, a.ts),
+                    unread: isActive ? c.unread : (c.unread || 0) + 1,
+                  }
+                : c
+            )
+          : // auto-add an incoming chat from someone new
+            [{ username: uname, lastActivity: a.ts, online: true, unread: isActive ? 0 : 1 }, ...prev];
+        persistContacts(next);
+        return next;
+      });
+      if (!isActive) {
+        playPing();
+        if (notifyRef.current) {
+          showMessageNotification(uname, "sent you a message", stealthRef.current || ideRef.current);
+        }
+      }
+    });
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // clear a chat's unread badge when you open it
+  useEffect(() => {
+    if (!activeContact) return;
+    setContacts((prev) =>
+      prev.some((c) => c.username === activeContact && c.unread)
+        ? prev.map((c) => (c.username === activeContact ? { ...c, unread: 0 } : c))
+        : prev
+    );
+  }, [activeContact]);
 
   // deep-link: open a chat from ?c= and apply the stealth-by-default preference (once)
   useEffect(() => {
@@ -190,7 +243,11 @@ export function ChatShell({
         });
         if (!mine) {
           setContacts((prev) =>
-            prev.map((c) => (c.username === activeContact ? { ...c, lastText: preview, online: true } : c))
+            prev.map((c) =>
+              c.username === activeContact
+                ? { ...c, lastText: preview, online: true, lastActivity: Math.max(c.lastActivity || 0, payload.ts) }
+                : c
+            )
           );
           // Notify when the tab isn't focused.
           if (typeof document !== "undefined" && document.hidden) {
@@ -323,7 +380,9 @@ export function ChatShell({
         ],
       };
     });
-    setContacts((prev) => prev.map((c) => (c.username === activeContact ? { ...c, lastText: text } : c)));
+    setContacts((prev) =>
+      prev.map((c) => (c.username === activeContact ? { ...c, lastText: text, lastActivity: payload.ts } : c))
+    );
     setReplyingTo(null);
   }
 
@@ -379,7 +438,7 @@ export function ChatShell({
     if (!clean || clean.toLowerCase() === myName.toLowerCase()) return;
     setContacts((prev) => {
       if (prev.some((c) => c.username.toLowerCase() === clean.toLowerCase())) return prev;
-      const next = [{ username: clean }, ...prev];
+      const next = [{ username: clean, lastActivity: Date.now() }, ...prev];
       persistContacts(next);
       return next;
     });
@@ -396,7 +455,7 @@ export function ChatShell({
     <main className="flex h-dvh overflow-hidden">
       <Sidebar
         myName={myName}
-        contacts={contacts}
+        contacts={[...contacts].sort((a, b) => (b.lastActivity || 0) - (a.lastActivity || 0))}
         activeContact={activeContact}
         onSelect={setActiveContact}
         onConnect={connectTo}

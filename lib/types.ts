@@ -43,6 +43,13 @@ export interface PeerInfo {
   publicKey: string; // base64
 }
 
+// A new message arriving in ANY of the user's conversations (drives the live inbox:
+// recent-on-top sorting, unread badges, and cross-chat notifications).
+export interface InboxActivity {
+  fromUsername: string;
+  ts: number;
+}
+
 // Events a transport emits back to the UI.
 export interface TransportEvents {
   onPeer: (name: string, simulated: boolean) => void;

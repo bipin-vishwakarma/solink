@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase, type Profile } from "@/lib/supabaseClient";
 import { getOrCreateKeyPair, exportPublicKey } from "@/lib/crypto";
 import { SupabaseTransport, type CloudContext } from "@/lib/supabaseTransport";
+import type { InboxActivity } from "@/lib/types";
 import { ChatShell, type TransportFactory } from "./ChatShell";
 
 type Phase = "loading" | "signedout" | "needs-username" | "ready";
@@ -99,6 +100,41 @@ export function CloudApp() {
       return new SupabaseTransport(peer, events, ctx);
     },
     [sb, userId, profile, keyPair]
+  );
+
+  // Global inbox listener: fires for a new message in ANY of my conversations
+  // (RLS limits it to mine). Separate channel from the chat transport, so it can
+  // never affect message delivery. Resolves the sender's username for the UI.
+  const makeInboxSubscription = useCallback(
+    (onActivity: (a: InboxActivity) => void) => {
+      const nameCache = new Map<string, string>();
+      const ch = sb
+        .channel(`inbox:${userId}`)
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "messages" },
+          async (payload) => {
+            const row = payload.new as { sender_id: string; created_at: string };
+            if (!row || row.sender_id === userId) return;
+            let uname = nameCache.get(row.sender_id);
+            if (!uname) {
+              const { data } = await sb
+                .from("profiles")
+                .select("username")
+                .eq("id", row.sender_id)
+                .maybeSingle();
+              uname = data?.username ?? undefined;
+              if (uname) nameCache.set(row.sender_id, uname);
+            }
+            if (uname) onActivity({ fromUsername: uname, ts: new Date(row.created_at).getTime() });
+          }
+        )
+        .subscribe();
+      return () => {
+        void sb.removeChannel(ch);
+      };
+    },
+    [sb, userId]
   );
 
   function signIn() {
@@ -211,5 +247,12 @@ export function CloudApp() {
     );
   }
 
-  return <ChatShell myName={(profile as Profile).username} makeTransport={makeTransport} onSignOut={signOut} />;
+  return (
+    <ChatShell
+      myName={(profile as Profile).username}
+      makeTransport={makeTransport}
+      makeInboxSubscription={makeInboxSubscription}
+      onSignOut={signOut}
+    />
+  );
 }

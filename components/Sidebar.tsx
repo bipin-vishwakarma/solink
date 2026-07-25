@@ -8,6 +8,8 @@ export interface Contact {
   username: string;
   lastText?: string;
   online?: boolean;
+  unread?: number;
+  lastActivity?: number; // ms timestamp of the latest message, for recent-on-top sorting
 }
 
 export function Sidebar({
@@ -124,10 +126,15 @@ export function Sidebar({
               <Avatar name={c.username} size={40} online={c.online} />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-brand-text">{c.username}</div>
-                <div className="truncate text-xs text-brand-muted">
+                <div className={`truncate text-xs ${c.unread ? "font-medium text-brand-text" : "text-brand-muted"}`}>
                   {c.lastText || "Say hi 👋"}
                 </div>
               </div>
+              {c.unread ? (
+                <span className="grid h-5 min-w-[20px] shrink-0 place-items-center rounded-full bg-brand-accent px-1.5 text-[11px] font-semibold text-white">
+                  {c.unread > 99 ? "99+" : c.unread}
+                </span>
+              ) : null}
             </button>
           );
         })}
