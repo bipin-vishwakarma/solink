@@ -47,7 +47,15 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{if(localStorage.getItem('solink:theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}",
+          }}
+        />
+        {children}
+      </body>
     </html>
   );
 }

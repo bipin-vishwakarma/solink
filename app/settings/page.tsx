@@ -50,6 +50,7 @@ export default function SettingsPage() {
   const [notifyOn, setNotifyOn] = useState(false);
   const [stealthDefault, setStealthDefault] = useState(false);
   const [autoStealth, setAutoStealth] = useState(false);
+  const [lightTheme, setLightTheme] = useState(false);
   const [supported, setSupported] = useState(true); // assume supported for SSR match
 
   useEffect(() => {
@@ -57,12 +58,21 @@ export default function SettingsPage() {
     setNotifyOn(localStorage.getItem("solink:notify") === "1" && notifyPermission() === "granted");
     setStealthDefault(localStorage.getItem("solink:stealthDefault") === "1");
     setAutoStealth(localStorage.getItem("solink:autoStealth") === "1");
+    setLightTheme(document.documentElement.getAttribute("data-theme") === "light");
   }, []);
 
   function toggleAutoStealth() {
     const v = !autoStealth;
     setAutoStealth(v);
     localStorage.setItem("solink:autoStealth", v ? "1" : "0");
+  }
+
+  function toggleTheme() {
+    const v = !lightTheme;
+    setLightTheme(v);
+    localStorage.setItem("solink:theme", v ? "light" : "dark");
+    if (v) document.documentElement.setAttribute("data-theme", "light");
+    else document.documentElement.removeAttribute("data-theme");
   }
 
   async function toggleNotify() {
@@ -132,6 +142,9 @@ export default function SettingsPage() {
         </Row>
         <Row title="Auto-stealth when I switch away" desc="Disguise as code when the tab loses focus; restore on return">
           <Toggle on={autoStealth} onChange={toggleAutoStealth} />
+        </Row>
+        <Row title="Light theme" desc="Switch between the warm dark and light look">
+          <Toggle on={lightTheme} onChange={toggleTheme} />
         </Row>
         {id.mode === "cloud" && isPushSupported() && id.userId && (
           <Row title="Background push" desc={pushStatus || "Get notified even when Solink is closed"}>

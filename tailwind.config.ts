@@ -28,19 +28,20 @@ const config: Config = {
         ],
       },
       colors: {
-        // Warm, Claude-flavored palette for the chat UI.
+        // Warm, Claude-flavored palette for the chat UI. Theme-aware via CSS vars
+        // (defined in globals.css) so light/dark can be toggled.
         brand: {
-          bg: "#17150f", // warm near-black
-          surface: "#221f18",
-          surface2: "#2b271f",
-          border: "#37322a",
-          text: "#efe9df",
-          muted: "#a39a8b",
-          faint: "#6f6656",
-          accent: "#d97757", // Anthropic coral
-          accentHover: "#e08d70",
-          accentSoft: "#3a2820",
-          online: "#7dd3a8",
+          bg: "rgb(var(--brand-bg) / <alpha-value>)",
+          surface: "rgb(var(--brand-surface) / <alpha-value>)",
+          surface2: "rgb(var(--brand-surface2) / <alpha-value>)",
+          border: "rgb(var(--brand-border) / <alpha-value>)",
+          text: "rgb(var(--brand-text) / <alpha-value>)",
+          muted: "rgb(var(--brand-muted) / <alpha-value>)",
+          faint: "rgb(var(--brand-faint) / <alpha-value>)",
+          accent: "rgb(var(--brand-accent) / <alpha-value>)",
+          accentHover: "rgb(var(--brand-accentHover) / <alpha-value>)",
+          accentSoft: "rgb(var(--brand-accentSoft) / <alpha-value>)",
+          online: "rgb(var(--brand-online) / <alpha-value>)",
         },
         // VS Code "Dark+" inspired palette used by Boss Mode.
         ide: {
