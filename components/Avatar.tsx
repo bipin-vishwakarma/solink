@@ -30,25 +30,37 @@ export function Avatar({
   size = 40,
   online,
   bot,
+  src,
 }: {
   name: string;
   size?: number;
   online?: boolean;
   bot?: boolean;
+  src?: string | null;
 }) {
   const [from, to] = GRADIENTS[hash(name || "?") % GRADIENTS.length];
   const dot = Math.max(9, Math.round(size * 0.28));
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
-      <div
-        className="flex h-full w-full items-center justify-center rounded-full font-semibold text-white/95 shadow-inner"
-        style={{
-          background: `linear-gradient(135deg, ${from}, ${to})`,
-          fontSize: size * 0.4,
-        }}
-      >
-        {bot ? "🤖" : initials(name || "?")}
-      </div>
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={name}
+          className="h-full w-full rounded-full object-cover"
+          style={{ width: size, height: size }}
+        />
+      ) : (
+        <div
+          className="flex h-full w-full items-center justify-center rounded-full font-semibold text-white/95 shadow-inner"
+          style={{
+            background: `linear-gradient(135deg, ${from}, ${to})`,
+            fontSize: size * 0.4,
+          }}
+        >
+          {bot ? "🤖" : initials(name || "?")}
+        </div>
+      )}
       {online && (
         <span
           className="absolute bottom-0 right-0 rounded-full border-2 border-brand-surface bg-brand-online"

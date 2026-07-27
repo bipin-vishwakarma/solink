@@ -1,12 +1,43 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { useIdentity } from "@/lib/identity";
+import { supabase } from "@/lib/supabaseClient";
 import { Avatar } from "@/components/Avatar";
 import { QRCode } from "@/components/QRCode";
 
 export default function ProfilePage() {
   const id = useIdentity();
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setAvatarUrl(id.avatarUrl);
+  }, [id.avatarUrl]);
+
+  async function uploadAvatar(file: File) {
+    if (!id.userId || !supabase) return;
+    if (file.size > 5 * 1024 * 1024) return;
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop() || "jpg";
+      const path = `${id.userId}/${Date.now()}.${ext}`;
+      const { error } = await supabase.storage
+        .from("avatars")
+        .upload(path, file, { upsert: true, contentType: file.type });
+      if (error) return;
+      const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+      const url = data.publicUrl;
+      await supabase.from("profiles").update({ avatar_url: url }).eq("id", id.userId);
+      setAvatarUrl(url);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  const canUpload = id.mode === "cloud" && !!id.userId;
 
   return (
     <main className="slide-up mx-auto flex min-h-dvh max-w-xl flex-col p-4 pt-[calc(1rem+var(--safe-top))] pb-[calc(1rem+var(--safe-bottom))] sm:p-6">
@@ -18,7 +49,33 @@ export default function ProfilePage() {
       </header>
 
       <div className="flex flex-col items-center rounded-2xl border border-brand-border bg-brand-surface/70 p-8 text-center">
-        <Avatar name={id.username || "?"} size={96} online />
+        <div className="relative">
+          <Avatar name={id.username || "?"} size={96} online src={avatarUrl} />
+          {canUpload && (
+            <>
+              <button
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+                className="pressable absolute bottom-0 right-0 grid h-8 w-8 place-items-center rounded-full border-2 border-brand-surface bg-brand-accent text-sm text-white shadow"
+                title="Change photo"
+                type="button"
+              >
+                {uploading ? "…" : "📷"}
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) uploadAvatar(f);
+                  if (fileRef.current) fileRef.current.value = "";
+                }}
+              />
+            </>
+          )}
+        </div>
         <div className="mt-4 text-2xl font-semibold text-brand-text">{id.username || "…"}</div>
         <div className="mt-1 flex items-center gap-1 text-sm text-brand-online">
           <span className="inline-block h-2 w-2 rounded-full bg-brand-online" /> online
@@ -39,7 +96,7 @@ export default function ProfilePage() {
           </div>
         </div>
         <div className="px-4 py-3 text-xs text-brand-muted">
-          Avatar upload & cross-device key sync are coming soon.
+          Cross-device key sync is coming soon.
         </div>
       </div>
 

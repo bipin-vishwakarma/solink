@@ -10,6 +10,7 @@ export interface Identity {
   userId: string | null;
   mode: "cloud" | "demo";
   publicKeyFingerprint: string | null;
+  avatarUrl: string | null;
 }
 
 async function fingerprint(): Promise<string> {
@@ -32,6 +33,7 @@ export function useIdentity(): Identity {
     userId: null,
     mode: hasSupabase ? "cloud" : "demo",
     publicKeyFingerprint: null,
+    avatarUrl: null,
   });
 
   useEffect(() => {
@@ -46,18 +48,20 @@ export function useIdentity(): Identity {
           userId: null,
           mode: "demo",
           publicKeyFingerprint: fp,
+          avatarUrl: null,
         });
         return;
       }
       const { data } = await supabase!.auth.getSession();
       const uid = data.session?.user?.id;
       if (!uid) {
-        if (alive) setState({ loading: false, username: null, userId: null, mode: "cloud", publicKeyFingerprint: fp });
+        if (alive)
+          setState({ loading: false, username: null, userId: null, mode: "cloud", publicKeyFingerprint: fp, avatarUrl: null });
         return;
       }
       const { data: prof } = await supabase!
         .from("profiles")
-        .select("username")
+        .select("username, avatar_url")
         .eq("id", uid)
         .maybeSingle();
       if (alive)
@@ -67,6 +71,7 @@ export function useIdentity(): Identity {
           userId: uid,
           mode: "cloud",
           publicKeyFingerprint: fp,
+          avatarUrl: prof?.avatar_url ?? null,
         });
     })();
     return () => {

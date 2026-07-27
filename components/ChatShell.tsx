@@ -57,13 +57,17 @@ function playPing() {
 
 export function ChatShell({
   myName,
+  myAvatarUrl,
   makeTransport,
   makeInboxSubscription,
+  validateUsername,
   onSignOut,
 }: {
   myName: string;
+  myAvatarUrl?: string | null;
   makeTransport: TransportFactory;
   makeInboxSubscription?: (onActivity: (a: InboxActivity) => void) => () => void;
+  validateUsername?: (username: string) => Promise<boolean>;
   onSignOut?: () => void;
 }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -81,6 +85,7 @@ export function ChatShell({
   const [showWire, setShowWire] = useState(true);
   const [peerTyping, setPeerTyping] = useState(false);
   const [peerOnline, setPeerOnline] = useState(false);
+  const [peerAvatar, setPeerAvatar] = useState<string | null>(null);
   const [lastSeen, setLastSeen] = useState<number | null>(null);
   const [notifyOn, setNotifyOn] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
@@ -222,14 +227,16 @@ export function ChatShell({
     setPeerTyping(false);
     setReplyingTo(null);
     setPeerOnline(false);
+    setPeerAvatar(null);
     setLastSeen(null);
     setReactionsByMsg({});
     markedRef.current = new Set();
 
     const events: TransportEvents = {
-      onPeer: (pn, sim) => {
+      onPeer: (pn, sim, avatarUrl) => {
         setPeerName(pn);
         setSimulated(sim);
+        setPeerAvatar(avatarUrl ?? null);
         setConnecting(false);
       },
       onMessage: (raw, payload, mine) => {
@@ -495,9 +502,21 @@ export function ChatShell({
     t.sendReaction(messageId, next);
   }
 
-  function connectTo(username: string) {
+  async function connectTo(username: string): Promise<string | null> {
     const clean = username.trim();
-    if (!clean || clean.toLowerCase() === myName.toLowerCase()) return;
+    if (!clean) return null;
+    if (clean.toLowerCase() === myName.toLowerCase()) return "That's your own username";
+    // already a contact → just open it
+    const existing = contacts.find((c) => c.username.toLowerCase() === clean.toLowerCase());
+    if (existing) {
+      setActiveContact(existing.username);
+      return null;
+    }
+    // in cloud mode, only allow adding usernames that actually exist
+    if (validateUsername) {
+      const ok = await validateUsername(clean).catch(() => false);
+      if (!ok) return `No user named @${clean}`;
+    }
     setContacts((prev) => {
       if (prev.some((c) => c.username.toLowerCase() === clean.toLowerCase())) return prev;
       const next = [{ username: clean, lastActivity: Date.now() }, ...prev];
@@ -505,6 +524,7 @@ export function ChatShell({
       return next;
     });
     setActiveContact(clean);
+    return null;
   }
 
   if (ide) {
@@ -517,6 +537,7 @@ export function ChatShell({
     <main className="flex h-dvh overflow-hidden">
       <Sidebar
         myName={myName}
+        myAvatarUrl={myAvatarUrl}
         contacts={[...contacts].sort((a, b) => (b.lastActivity || 0) - (a.lastActivity || 0))}
         activeContact={activeContact}
         onSelect={setActiveContact}
@@ -544,7 +565,7 @@ export function ChatShell({
               >
                 ←
               </button>
-              <Avatar name={activeContact} size={40} online={peerOnline} bot={simulated} />
+              <Avatar name={activeContact} size={40} online={peerOnline} bot={simulated} src={peerAvatar} />
               <div className="min-w-0 flex-1">
                 <div className="truncate font-semibold text-brand-text">{activeContact}</div>
                 <div className="truncate font-mono text-[11px] text-brand-muted">

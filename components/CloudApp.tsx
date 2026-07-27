@@ -52,7 +52,7 @@ export function CloudApp() {
       setKeyPair(kp);
       const { data: prof } = await sb
         .from("profiles")
-        .select("id, username, public_key")
+        .select("id, username, public_key, avatar_url")
         .eq("id", id)
         .maybeSingle();
       if (!mounted) return;
@@ -135,6 +135,15 @@ export function CloudApp() {
       };
     },
     [sb, userId]
+  );
+
+  // Only let users start a chat with a username that actually exists.
+  const validateUsername = useCallback(
+    async (u: string) => {
+      const { data } = await sb.from("profiles").select("id").ilike("username", u).maybeSingle();
+      return !!data;
+    },
+    [sb]
   );
 
   function signIn() {
@@ -250,8 +259,10 @@ export function CloudApp() {
   return (
     <ChatShell
       myName={(profile as Profile).username}
+      myAvatarUrl={(profile as Profile).avatar_url}
       makeTransport={makeTransport}
       makeInboxSubscription={makeInboxSubscription}
+      validateUsername={validateUsername}
       onSignOut={signOut}
     />
   );

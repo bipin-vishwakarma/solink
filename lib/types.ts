@@ -59,7 +59,7 @@ export interface ReactionSummary {
 
 // Events a transport emits back to the UI.
 export interface TransportEvents {
-  onPeer: (name: string, simulated: boolean) => void;
+  onPeer: (name: string, simulated: boolean, avatarUrl?: string | null) => void;
   onMessage: (text: string, payload: WirePayload, mine: boolean) => void;
   onWireLog: (raw: string) => void; // the ciphertext that crosses the wire
   onError?: (message: string) => void;

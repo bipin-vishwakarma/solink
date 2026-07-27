@@ -64,7 +64,7 @@ export class SupabaseTransport implements ChatTransport {
     // 1. Look up the peer's profile (case-insensitive exact match).
     const { data: peer, error: peerErr } = await this.sb
       .from("profiles")
-      .select("id, username, public_key")
+      .select("id, username, public_key, avatar_url")
       .ilike("username", this.peerUsername)
       .maybeSingle();
 
@@ -192,7 +192,7 @@ export class SupabaseTransport implements ChatTransport {
       .subscribe();
 
     // 6. Ready.
-    this.events.onPeer(this.peer.username, false);
+    this.events.onPeer(this.peer.username, false, this.peer.avatar_url);
   }
 
   private async loadReactions() {

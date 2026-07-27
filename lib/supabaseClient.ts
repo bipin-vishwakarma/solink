@@ -24,4 +24,5 @@ export interface Profile {
   id: string;
   username: string;
   public_key: string;
+  avatar_url?: string | null;
 }

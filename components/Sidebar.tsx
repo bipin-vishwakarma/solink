@@ -14,6 +14,7 @@ export interface Contact {
 
 export function Sidebar({
   myName,
+  myAvatarUrl,
   contacts,
   activeContact,
   onSelect,
@@ -22,14 +23,17 @@ export function Sidebar({
   className = "",
 }: {
   myName: string;
+  myAvatarUrl?: string | null;
   contacts: Contact[];
   activeContact: string | null;
   onSelect: (username: string) => void;
-  onConnect: (username: string) => void;
+  onConnect: (username: string) => Promise<string | null>;
   onSignOut?: () => void;
   className?: string;
 }) {
   const [query, setQuery] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
 
   const trimmed = query.trim();
   const filtered = trimmed
@@ -39,10 +43,17 @@ export function Sidebar({
     (c) => c.username.toLowerCase() === trimmed.toLowerCase()
   );
 
-  function connect() {
-    if (!trimmed) return;
-    onConnect(trimmed);
-    setQuery("");
+  async function connect() {
+    if (!trimmed || connecting) return;
+    setConnecting(true);
+    setError(null);
+    const err = await onConnect(trimmed);
+    setConnecting(false);
+    if (err) setError(err);
+    else {
+      setQuery("");
+      setError(null);
+    }
   }
 
   return (
@@ -52,7 +63,7 @@ export function Sidebar({
       {/* profile header */}
       <div className="flex items-center gap-3 border-b border-brand-border px-4 pb-3 pt-[calc(0.75rem+var(--safe-top))]">
         <Link href="/profile" className="transition hover:opacity-80" title="Your profile">
-          <Avatar name={myName} size={38} online />
+          <Avatar name={myName} size={38} online src={myAvatarUrl} />
         </Link>
         <Link href="/profile" className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-brand-text">{myName}</div>
@@ -82,21 +93,28 @@ export function Sidebar({
           </svg>
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setError(null);
+            }}
             onKeyDown={(e) => e.key === "Enter" && connect()}
             placeholder="Connect by username…"
             className="w-full bg-transparent text-sm text-brand-text placeholder:text-brand-faint outline-none"
           />
         </div>
-        {trimmed && !exactExists && (
+        {error && <div className="mt-2 px-1 text-xs text-red-400">{error}</div>}
+        {trimmed && !exactExists && !error && (
           <button
             onClick={connect}
-            className="mt-2 flex w-full items-center gap-3 rounded-xl border border-brand-accent/40 bg-brand-accentSoft/60 px-3 py-2 text-left transition hover:bg-brand-accentSoft"
+            disabled={connecting}
+            className="mt-2 flex w-full items-center gap-3 rounded-xl border border-brand-accent/40 bg-brand-accentSoft/60 px-3 py-2 text-left transition hover:bg-brand-accentSoft disabled:opacity-60"
           >
             <Avatar name={trimmed} size={34} />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium text-brand-text">@{trimmed}</div>
-              <div className="text-[11px] text-brand-accent">tap to start an encrypted chat</div>
+              <div className="text-[11px] text-brand-accent">
+                {connecting ? "checking…" : "tap to start an encrypted chat"}
+              </div>
             </div>
             <span className="text-brand-accent">→</span>
           </button>
