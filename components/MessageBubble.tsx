@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AttachmentMeta, AttachmentRef, ChatMessage, ReactionSummary } from "@/lib/types";
 
 const QUICK_REACTIONS = ["❤️", "👍", "😂", "😮", "😢", "🙏"];
@@ -156,6 +156,7 @@ export function MessageBubble({
   onReact?: (emoji: string) => void;
 }) {
   const [showReactBar, setShowReactBar] = useState(false);
+  const touchStartX = useRef<number | null>(null);
 
   function copy() {
     navigator.clipboard?.writeText(msg.text).catch(() => {});
@@ -204,7 +205,19 @@ export function MessageBubble({
   );
 
   return (
-    <div className={`group relative flex items-center gap-2 ${msg.mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-2"}`}>
+    <div
+      className={`group relative flex items-center gap-2 ${msg.mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-2"}`}
+      onTouchStart={(e) => {
+        touchStartX.current = e.touches[0]?.clientX ?? null;
+      }}
+      onTouchEnd={(e) => {
+        const start = touchStartX.current;
+        touchStartX.current = null;
+        if (start == null || !onReply) return;
+        const dx = (e.changedTouches[0]?.clientX ?? start) - start;
+        if (Math.abs(dx) > 55) onReply(msg);
+      }}
+    >
       {showReactBar && onReact && (
         <div
           className={`pop-in absolute -top-8 z-20 flex gap-1 rounded-full border border-brand-border bg-brand-surface2 px-2 py-1 shadow-xl ${msg.mine ? "right-0" : "left-0"}`}

@@ -16,8 +16,22 @@ export function Composer({
 }) {
   const [text, setText] = useState("");
   const [showEmoji, setShowEmoji] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
+
+  function shareLocation() {
+    setShowAttachMenu(false);
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        onSend(`📍 My location: https://www.google.com/maps?q=${latitude},${longitude}`);
+      },
+      () => {},
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const typingRef = useRef(false);
@@ -168,16 +182,41 @@ export function Composer({
             😊
           </button>
           {onAttach && (
-            <button
-              onClick={() => fileRef.current?.click()}
-              className="grid h-11 w-9 shrink-0 place-items-center rounded-full text-brand-muted transition hover:text-brand-text"
-              aria-label="Attach file"
-              type="button"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <path d="M21 11.5l-8.5 8.5a5 5 0 01-7-7l8.5-8.5a3.5 3.5 0 015 5L10.5 18a2 2 0 01-3-3l7.5-7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
+            <div className="relative">
+              {showAttachMenu && (
+                <div className="pop-in absolute bottom-12 left-0 z-20 w-44 overflow-hidden rounded-2xl border border-brand-border bg-brand-surface2 shadow-2xl">
+                  <button
+                    onClick={() => {
+                      setShowAttachMenu(false);
+                      fileRef.current?.click();
+                    }}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
+                    type="button"
+                  >
+                    <span className="text-lg">📷</span> Photo / File
+                  </button>
+                  <button
+                    onClick={shareLocation}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
+                    type="button"
+                  >
+                    <span className="text-lg">📍</span> Location
+                  </button>
+                </div>
+              )}
+              <button
+                onClick={() => setShowAttachMenu((v) => !v)}
+                className={`grid h-11 w-9 shrink-0 place-items-center rounded-full transition ${
+                  showAttachMenu ? "text-brand-accent" : "text-brand-muted hover:text-brand-text"
+                }`}
+                aria-label="Attach"
+                type="button"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M21 11.5l-8.5 8.5a5 5 0 01-7-7l8.5-8.5a3.5 3.5 0 015 5L10.5 18a2 2 0 01-3-3l7.5-7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
           )}
 
           <textarea
