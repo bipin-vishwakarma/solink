@@ -6,27 +6,27 @@ import { useIdentity } from "@/lib/identity";
 import { supabase } from "@/lib/supabaseClient";
 import { Avatar } from "@/components/Avatar";
 import { QRCode } from "@/components/QRCode";
+import { ImageCropper } from "@/components/ImageCropper";
 
 export default function ProfilePage() {
   const id = useIdentity();
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [cropFile, setCropFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setAvatarUrl(id.avatarUrl);
   }, [id.avatarUrl]);
 
-  async function uploadAvatar(file: File) {
+  async function uploadAvatar(blob: Blob) {
     if (!id.userId || !supabase) return;
-    if (file.size > 5 * 1024 * 1024) return;
     setUploading(true);
     try {
-      const ext = file.name.split(".").pop() || "jpg";
-      const path = `${id.userId}/${Date.now()}.${ext}`;
+      const path = `${id.userId}/${Date.now()}.jpg`;
       const { error } = await supabase.storage
         .from("avatars")
-        .upload(path, file, { upsert: true, contentType: file.type });
+        .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
       if (error) return;
       const { data } = supabase.storage.from("avatars").getPublicUrl(path);
       const url = data.publicUrl;
@@ -69,7 +69,7 @@ export default function ProfilePage() {
                 className="hidden"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
-                  if (f) uploadAvatar(f);
+                  if (f) setCropFile(f);
                   if (fileRef.current) fileRef.current.value = "";
                 }}
               />
@@ -120,6 +120,20 @@ export default function ProfilePage() {
       >
         Back to chats
       </Link>
+
+      {cropFile && (
+        <ImageCropper
+          file={cropFile}
+          aspect={1}
+          lockAspect
+          title="Crop profile photo"
+          onCancel={() => setCropFile(null)}
+          onDone={(blob) => {
+            setCropFile(null);
+            void uploadAvatar(blob);
+          }}
+        />
+      )}
     </main>
   );
 }

@@ -9,6 +9,8 @@ import { Sidebar, type Contact } from "./Sidebar";
 import { Avatar } from "./Avatar";
 import { Composer } from "./Composer";
 import { TypingDots } from "./TypingDots";
+import { ImageLightbox } from "./ImageLightbox";
+import { ImageCropper } from "./ImageCropper";
 import { requestNotifyPermission, showMessageNotification, notifyPermission } from "@/lib/notify";
 import { encodeMessage, decodeMessage } from "@/lib/envelope";
 
@@ -96,6 +98,9 @@ export function ChatShell({
   >({});
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
+  const [pendingForward, setPendingForward] = useState<{ file: File; target: string } | null>(null);
+  const [cropState, setCropState] = useState<{ file: File } | null>(null);
 
   const transportRef = useRef<ChatTransport | null>(null);
   const makeTransportRef = useRef(makeTransport);
@@ -378,6 +383,16 @@ export function ChatShell({
     }
   }, [messages.length, peerTyping]);
 
+  // Complete a pending image forward once the target chat's transport is ready.
+  useEffect(() => {
+    if (!pendingForward) return;
+    if (activeContact !== pendingForward.target || !peerName) return;
+    const { file } = pendingForward;
+    setPendingForward(null);
+    void sendFile(file);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingForward, activeContact, peerName]);
+
   // Mark the peer's messages as read while the chat is open and the tab is visible.
   useEffect(() => {
     if (!activeContact) return;
@@ -476,6 +491,13 @@ export function ChatShell({
     );
   }
 
+  // Intercept image attachments so the user can crop/edit before sending.
+  // Non-images go straight through. Forwarded images reuse sendFile directly.
+  function handleAttach(file: File) {
+    if (file.type.startsWith("image/")) setCropState({ file });
+    else void sendFile(file);
+  }
+
   const resolveAttachment = useCallback((ref: AttachmentRef) => {
     const t = transportRef.current;
     return t?.resolveAttachment ? t.resolveAttachment(ref) : Promise.resolve(null);
@@ -492,6 +514,20 @@ export function ChatShell({
     }
     const arr = Object.entries(byEmoji).map(([emoji, v]) => ({ emoji, count: v.count, mine: v.mine }));
     return arr.length ? arr : undefined;
+  }
+
+  async function forwardImage(target: string) {
+    if (!lightbox) return;
+    const src = lightbox;
+    setLightbox(null);
+    try {
+      const blob = await fetch(src.url).then((r) => r.blob());
+      const file = new File([blob], src.name || "image.jpg", { type: blob.type || "image/jpeg" });
+      setPendingForward({ file, target });
+      await connectTo(target); // opens the target chat (it's an existing contact)
+    } catch {
+      flash("Couldn't forward image");
+    }
   }
 
   function react(messageId: string, emoji: string) {
@@ -705,6 +741,7 @@ export function ChatShell({
                           resolveAttachment={resolveAttachment}
                           reactions={aggregateReactions(m.id)}
                           onReact={(e) => react(m.id, e)}
+                          onOpenImage={(url, name) => setLightbox({ url, name })}
                         />
                       </div>
                     );
@@ -763,12 +800,36 @@ export function ChatShell({
             <Composer
               onSend={send}
               onTyping={(t) => transportRef.current?.sendTyping?.(t)}
-              onAttach={sendFile}
+              onAttach={handleAttach}
               disabled={!!error}
             />
           </>
         )}
       </section>
+
+      {cropState && (
+        <ImageCropper
+          file={cropState.file}
+          title="Edit photo"
+          onCancel={() => setCropState(null)}
+          onDone={(blob) => {
+            const base = (cropState.file.name.replace(/\.[^.]+$/, "") || "photo").slice(0, 40);
+            const f = new File([blob], `${base}.jpg`, { type: "image/jpeg" });
+            setCropState(null);
+            void sendFile(f);
+          }}
+        />
+      )}
+
+      {lightbox && (
+        <ImageLightbox
+          url={lightbox.url}
+          name={lightbox.name}
+          contacts={contacts.map((c) => c.username).filter((u) => u !== activeContact)}
+          onForward={forwardImage}
+          onClose={() => setLightbox(null)}
+        />
+      )}
     </main>
   );
 }

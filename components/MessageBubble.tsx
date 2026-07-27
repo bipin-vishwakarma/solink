@@ -22,10 +22,12 @@ function AttachmentView({
   meta,
   resolve,
   mine,
+  onOpenImage,
 }: {
   meta: AttachmentMeta;
   resolve?: Resolver;
   mine: boolean;
+  onOpenImage?: (url: string, name: string) => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -71,9 +73,15 @@ function AttachmentView({
       <div className="mb-1 overflow-hidden rounded-lg">
         {url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <a href={url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
-            <img src={url} alt={meta.name} className="max-h-72 w-auto max-w-full rounded-lg" />
-          </a>
+          <img
+            src={url}
+            alt={meta.name}
+            className="max-h-72 w-auto max-w-full cursor-pointer rounded-lg"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenImage?.(url, meta.name);
+            }}
+          />
         ) : (
           <div className="grid h-40 w-56 place-items-center bg-black/20 text-xs text-brand-muted">
             {failed ? "🔒 couldn't load" : "decrypting…"}
@@ -147,6 +155,7 @@ export function MessageBubble({
   resolveAttachment,
   reactions,
   onReact,
+  onOpenImage,
 }: {
   msg: ChatMessage;
   grouped?: boolean;
@@ -154,6 +163,7 @@ export function MessageBubble({
   resolveAttachment?: Resolver;
   reactions?: ReactionSummary[];
   onReact?: (emoji: string) => void;
+  onOpenImage?: (url: string, name: string) => void;
 }) {
   const [showReactBar, setShowReactBar] = useState(false);
   const touchStartX = useRef<number | null>(null);
@@ -259,7 +269,12 @@ export function MessageBubble({
           </div>
         )}
         {msg.attachment && (
-          <AttachmentView meta={msg.attachment} resolve={resolveAttachment} mine={msg.mine} />
+          <AttachmentView
+            meta={msg.attachment}
+            resolve={resolveAttachment}
+            mine={msg.mine}
+            onOpenImage={onOpenImage}
+          />
         )}
         {msg.text && (
           <div className="whitespace-pre-wrap break-words">
