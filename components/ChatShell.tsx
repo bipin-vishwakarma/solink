@@ -89,6 +89,8 @@ export function ChatShell({
   const [reactionsByMsg, setReactionsByMsg] = useState<
     Record<string, Record<string, { emoji: string; mine: boolean }>>
   >({});
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const transportRef = useRef<ChatTransport | null>(null);
   const makeTransportRef = useRef(makeTransport);
@@ -340,6 +342,28 @@ export function ChatShell({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Auto-stealth: when you switch tabs / the window loses focus, disguise the chat
+  // as code; restore your previous view when you return. Opt-in via Settings.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (localStorage.getItem("solink:autoStealth") !== "1") return;
+    let saved = false;
+    const hide = () => {
+      saved = stealthRef.current;
+      setStealth(true);
+    };
+    const show = () => setStealth(saved);
+    const onVis = () => (document.hidden ? hide() : show());
+    window.addEventListener("blur", hide);
+    window.addEventListener("focus", show);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("blur", hide);
+      window.removeEventListener("focus", show);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
+
   // Auto-scroll only when the user is already near the bottom (or just sent something).
   useEffect(() => {
     if (atBottomRef.current) {
@@ -542,6 +566,18 @@ export function ChatShell({
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 <button
+                  onClick={() => {
+                    setSearchOpen((v) => !v);
+                    setSearchQuery("");
+                  }}
+                  className={`rounded-lg px-2 py-1 text-xs font-medium transition ${
+                    searchOpen ? "bg-brand-accent/20 text-brand-accent" : "text-brand-faint hover:bg-white/5"
+                  }`}
+                  title="Search messages"
+                >
+                  🔍
+                </button>
+                <button
                   onClick={toggleNotify}
                   className={`rounded-lg px-2 py-1 text-xs font-medium transition ${
                     notifyOn ? "bg-brand-accent/20 text-brand-accent" : "text-brand-faint hover:bg-white/5"
@@ -578,6 +614,18 @@ export function ChatShell({
               </div>
             </header>
 
+            {searchOpen && (
+              <div className="border-b border-brand-border bg-brand-surface/70 px-3 py-2 backdrop-blur">
+                <input
+                  autoFocus
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search in this chat…"
+                  className="w-full rounded-full border border-brand-border bg-black/25 px-4 py-2 text-sm text-brand-text outline-none focus:border-brand-accent"
+                />
+              </div>
+            )}
+
             <div
               ref={scrollRef}
               onScroll={onScroll}
@@ -597,12 +645,18 @@ export function ChatShell({
                   {error}
                 </div>
               )}
+              {searchOpen && searchQuery.trim() && !stealth && messages.filter((m) => m.text.toLowerCase().includes(searchQuery.trim().toLowerCase())).length === 0 && (
+                <div className="mt-10 text-center text-sm text-brand-faint">No messages match “{searchQuery.trim()}”</div>
+              )}
               {stealth
                 ? messages.map((m, i) => (
                     <CodeSnippet key={m.id} id={m.id} text={m.text} mine={m.mine} lineNumber={i + 1} />
                   ))
-                : messages.map((m, i) => {
-                    const prev = messages[i - 1];
+                : (searchOpen && searchQuery.trim()
+                    ? messages.filter((m) => m.text.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+                    : messages
+                  ).map((m, i, arr) => {
+                    const prev = arr[i - 1];
                     const showDay = !prev || !sameDay(prev.ts, m.ts);
                     const grouped =
                       !!prev &&

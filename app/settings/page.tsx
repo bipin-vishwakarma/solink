@@ -49,13 +49,21 @@ export default function SettingsPage() {
   const id = useIdentity();
   const [notifyOn, setNotifyOn] = useState(false);
   const [stealthDefault, setStealthDefault] = useState(false);
+  const [autoStealth, setAutoStealth] = useState(false);
   const [supported, setSupported] = useState(true); // assume supported for SSR match
 
   useEffect(() => {
     setSupported(notifySupported());
     setNotifyOn(localStorage.getItem("solink:notify") === "1" && notifyPermission() === "granted");
     setStealthDefault(localStorage.getItem("solink:stealthDefault") === "1");
+    setAutoStealth(localStorage.getItem("solink:autoStealth") === "1");
   }, []);
+
+  function toggleAutoStealth() {
+    const v = !autoStealth;
+    setAutoStealth(v);
+    localStorage.setItem("solink:autoStealth", v ? "1" : "0");
+  }
 
   async function toggleNotify() {
     if (notifyOn) {
@@ -121,6 +129,9 @@ export default function SettingsPage() {
         </Row>
         <Row title="Open chats in stealth by default" desc="Start every chat disguised as code">
           <Toggle on={stealthDefault} onChange={toggleStealth} />
+        </Row>
+        <Row title="Auto-stealth when I switch away" desc="Disguise as code when the tab loses focus; restore on return">
+          <Toggle on={autoStealth} onChange={toggleAutoStealth} />
         </Row>
         {id.mode === "cloud" && isPushSupported() && id.userId && (
           <Row title="Background push" desc={pushStatus || "Get notified even when Solink is closed"}>
