@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AttachmentRef, ChatMessage, ChatTransport, InboxActivity, TransportEvents } from "@/lib/types";
+import type { AttachmentRef, ChatMessage, ChatTransport, InboxActivity, ReactionSummary, TransportEvents } from "@/lib/types";
 import { MessageBubble } from "./MessageBubble";
 import { CodeSnippet } from "./CodeSnippet";
 import { BossModeIDE } from "./BossModeIDE";
@@ -86,6 +86,9 @@ export function ChatShell({
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [reactionsByMsg, setReactionsByMsg] = useState<
+    Record<string, Record<string, { emoji: string; mine: boolean }>>
+  >({});
 
   const transportRef = useRef<ChatTransport | null>(null);
   const makeTransportRef = useRef(makeTransport);
@@ -218,6 +221,7 @@ export function ChatShell({
     setReplyingTo(null);
     setPeerOnline(false);
     setLastSeen(null);
+    setReactionsByMsg({});
     markedRef.current = new Set();
 
     const events: TransportEvents = {
@@ -290,6 +294,14 @@ export function ChatShell({
       onPresence: (online, seen) => {
         setPeerOnline(online);
         if (!online && seen) setLastSeen(seen);
+      },
+      onReaction: (messageId, reactorId, emoji, mine) => {
+        setReactionsByMsg((prev) => {
+          const cur = { ...(prev[messageId] || {}) };
+          if (emoji) cur[reactorId] = { emoji, mine };
+          else delete cur[reactorId];
+          return { ...prev, [messageId]: cur };
+        });
       },
     };
 
@@ -432,6 +444,27 @@ export function ChatShell({
     const t = transportRef.current;
     return t?.resolveAttachment ? t.resolveAttachment(ref) : Promise.resolve(null);
   }, []);
+
+  function aggregateReactions(messageId: string): ReactionSummary[] | undefined {
+    const map = reactionsByMsg[messageId];
+    if (!map) return undefined;
+    const byEmoji: Record<string, { count: number; mine: boolean }> = {};
+    for (const { emoji, mine } of Object.values(map)) {
+      if (!byEmoji[emoji]) byEmoji[emoji] = { count: 0, mine: false };
+      byEmoji[emoji].count++;
+      if (mine) byEmoji[emoji].mine = true;
+    }
+    const arr = Object.entries(byEmoji).map(([emoji, v]) => ({ emoji, count: v.count, mine: v.mine }));
+    return arr.length ? arr : undefined;
+  }
+
+  function react(messageId: string, emoji: string) {
+    const t = transportRef.current;
+    if (!t?.sendReaction) return;
+    const mineCur = Object.values(reactionsByMsg[messageId] || {}).find((r) => r.mine);
+    const next = mineCur?.emoji === emoji ? "" : emoji;
+    t.sendReaction(messageId, next);
+  }
 
   function connectTo(username: string) {
     const clean = username.trim();
@@ -590,6 +623,8 @@ export function ChatShell({
                           grouped={grouped}
                           onReply={setReplyingTo}
                           resolveAttachment={resolveAttachment}
+                          reactions={aggregateReactions(m.id)}
+                          onReact={(e) => react(m.id, e)}
                         />
                       </div>
                     );

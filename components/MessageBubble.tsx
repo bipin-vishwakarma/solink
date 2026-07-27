@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { AttachmentMeta, AttachmentRef, ChatMessage } from "@/lib/types";
+import type { AttachmentMeta, AttachmentRef, ChatMessage, ReactionSummary } from "@/lib/types";
+
+const QUICK_REACTIONS = ["❤️", "👍", "😂", "😮", "😢", "🙏"];
 
 function timeOf(ts: number): string {
   const d = new Date(ts);
@@ -129,12 +131,18 @@ export function MessageBubble({
   grouped = false,
   onReply,
   resolveAttachment,
+  reactions,
+  onReact,
 }: {
   msg: ChatMessage;
   grouped?: boolean;
   onReply?: (m: ChatMessage) => void;
   resolveAttachment?: Resolver;
+  reactions?: ReactionSummary[];
+  onReact?: (emoji: string) => void;
 }) {
+  const [showReactBar, setShowReactBar] = useState(false);
+
   function copy() {
     navigator.clipboard?.writeText(msg.text).catch(() => {});
   }
@@ -166,11 +174,41 @@ export function MessageBubble({
           <path d="M5 15V5a2 2 0 012-2h10" stroke="currentColor" strokeWidth="1.8" />
         </svg>
       </button>
+      {onReact && (
+        <button
+          onClick={() => setShowReactBar((v) => !v)}
+          className="rounded-full bg-brand-surface2 p-1.5 text-brand-muted hover:text-brand-text"
+          title="React"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
+            <path d="M9 10h.01M15 10h.01M8.5 14a4 4 0 007 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 
   return (
-    <div className={`group flex items-center gap-2 ${msg.mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-2"}`}>
+    <div className={`group relative flex items-center gap-2 ${msg.mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-2"}`}>
+      {showReactBar && onReact && (
+        <div
+          className={`pop-in absolute -top-8 z-20 flex gap-1 rounded-full border border-brand-border bg-brand-surface2 px-2 py-1 shadow-xl ${msg.mine ? "right-0" : "left-0"}`}
+        >
+          {QUICK_REACTIONS.map((e) => (
+            <button
+              key={e}
+              onClick={() => {
+                onReact(e);
+                setShowReactBar(false);
+              }}
+              className="pressable text-lg leading-none transition hover:scale-125"
+            >
+              {e}
+            </button>
+          ))}
+        </div>
+      )}
       {actions}
       <div
         className={`pop-in max-w-[76%] px-3.5 py-2 text-[14.5px] leading-snug shadow-sm ${
@@ -209,6 +247,22 @@ export function MessageBubble({
             </span>
           )}
         </div>
+        {reactions && reactions.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {reactions.map((r) => (
+              <button
+                key={r.emoji}
+                onClick={() => onReact?.(r.emoji)}
+                className={`pressable flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] ${
+                  r.mine ? "bg-white/25 ring-1 ring-white/40" : "bg-black/20"
+                } ${msg.mine ? "text-white" : "text-brand-text"}`}
+              >
+                <span>{r.emoji}</span>
+                {r.count > 1 && <span className="font-medium">{r.count}</span>}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

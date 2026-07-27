@@ -50,6 +50,13 @@ export interface InboxActivity {
   ts: number;
 }
 
+// Aggregated reactions for one message (for display).
+export interface ReactionSummary {
+  emoji: string;
+  count: number;
+  mine: boolean;
+}
+
 // Events a transport emits back to the UI.
 export interface TransportEvents {
   onPeer: (name: string, simulated: boolean) => void;
@@ -59,6 +66,8 @@ export interface TransportEvents {
   onTyping?: (isTyping: boolean) => void; // peer started/stopped typing
   onRead?: (messageIds: string[]) => void; // peer has read these of OUR messages
   onPresence?: (online: boolean, lastSeen?: number) => void; // peer online/last-seen
+  // a reaction was added/changed/removed. emoji "" means removed. reactorId keys the reactor.
+  onReaction?: (messageId: string, reactorId: string, emoji: string, mine: boolean) => void;
 }
 
 // Common shape implemented by both the local (demo) and Supabase (cloud) transports.
@@ -73,5 +82,6 @@ export interface ChatTransport {
   ) => Promise<{ payload: WirePayload; attachment: AttachmentMeta } | null>;
   resolveAttachment?: (ref: AttachmentRef) => Promise<Blob | null>;
   markRead?: (messageIds: string[]) => void; // tell the peer we've read these
+  sendReaction?: (messageId: string, emoji: string) => void; // emoji "" removes ours
   destroy: () => void;
 }

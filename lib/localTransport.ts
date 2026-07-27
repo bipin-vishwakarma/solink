@@ -31,6 +31,7 @@ type Signal =
   | { kind: "bye"; peerId: string }
   | { kind: "typing"; from: string; isTyping: boolean }
   | { kind: "read"; from: string; ids: string[] }
+  | { kind: "reaction"; from: string; messageId: string; emoji: string }
   | ({ kind: "msg"; from: string } & WirePayload);
 
 const BOT_REPLIES = [
@@ -125,6 +126,11 @@ export class LocalTransport implements ChatTransport {
       return;
     }
 
+    if (sig.kind === "reaction") {
+      this.events.onReaction?.(sig.messageId, sig.from, sig.emoji, false);
+      return;
+    }
+
     if (sig.kind === "msg") {
       if (!this.sharedKey) return;
       try {
@@ -190,6 +196,11 @@ export class LocalTransport implements ChatTransport {
   markRead(ids: string[]) {
     if (this.simulated || ids.length === 0) return;
     this.post({ kind: "read", from: this.myPeerId, ids });
+  }
+
+  sendReaction(messageId: string, emoji: string) {
+    this.events.onReaction?.(messageId, this.myPeerId, emoji, true); // optimistic
+    if (!this.simulated) this.post({ kind: "reaction", from: this.myPeerId, messageId, emoji });
   }
 
   async sendAttachment(

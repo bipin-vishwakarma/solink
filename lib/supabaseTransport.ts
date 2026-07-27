@@ -47,8 +47,10 @@ export class SupabaseTransport implements ChatTransport {
   private peer: Profile | null = null;
   private channel: ReturnType<SupabaseClient["channel"]> | null = null;
   private extrasChannel: ReturnType<SupabaseClient["channel"]> | null = null;
+  private reactionsChannel: ReturnType<SupabaseClient["channel"]> | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private seen = new Set<string>(); // message ids already delivered to the UI
+  private msgIds = new Set<string>(); // message ids in this conversation (for reaction filtering)
 
   constructor(
     private peerUsername: string,
@@ -160,12 +162,66 @@ export class SupabaseTransport implements ChatTransport {
     //     Deduped against realtime by message id, so it never double-shows.
     this.pollTimer = setInterval(() => void this.poll(), 3000);
 
+    // 5d. Reactions — own channel (isolated from message delivery). Load existing +
+    //     subscribe to live changes. RLS scopes reactions to our conversations; we
+    //     further filter to messages we know are in THIS conversation.
+    void this.loadReactions();
+    this.reactionsChannel = this.sb
+      .channel(`reactions:${this.conversationId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "reactions" },
+        (payload) => {
+          const newRow = payload.new as { message_id?: string; user_id?: string; emoji?: string };
+          const oldRow = payload.old as { message_id?: string; user_id?: string };
+          if (payload.eventType === "DELETE") {
+            const mid = oldRow?.message_id;
+            const uid = oldRow?.user_id;
+            if (mid && uid && this.msgIds.has(mid) && uid !== this.ctx.userId) {
+              this.events.onReaction?.(mid, uid, "", false);
+            }
+          } else {
+            const mid = newRow?.message_id;
+            const uid = newRow?.user_id;
+            if (mid && uid && this.msgIds.has(mid) && uid !== this.ctx.userId) {
+              this.events.onReaction?.(mid, uid, newRow.emoji || "", false);
+            }
+          }
+        }
+      )
+      .subscribe();
+
     // 6. Ready.
     this.events.onPeer(this.peer.username, false);
   }
 
+  private async loadReactions() {
+    const ids = Array.from(this.msgIds);
+    if (!ids.length) return;
+    const { data } = await this.sb
+      .from("reactions")
+      .select("message_id, user_id, emoji")
+      .in("message_id", ids);
+    for (const row of (data as Array<{ message_id: string; user_id: string; emoji: string }> | null) || []) {
+      this.events.onReaction?.(row.message_id, row.user_id, row.emoji, row.user_id === this.ctx.userId);
+    }
+  }
+
+  sendReaction(messageId: string, emoji: string) {
+    // optimistic
+    this.events.onReaction?.(messageId, this.ctx.userId, emoji, true);
+    if (emoji) {
+      void this.sb
+        .from("reactions")
+        .upsert({ message_id: messageId, user_id: this.ctx.userId, emoji }, { onConflict: "message_id,user_id" });
+    } else {
+      void this.sb.from("reactions").delete().eq("message_id", messageId).eq("user_id", this.ctx.userId);
+    }
+  }
+
   /** Deliver a row exactly once (dedup across realtime + polling + history). */
   private async deliver(row: MessageRow, live: boolean) {
+    this.msgIds.add(row.id);
     if (this.seen.has(row.id)) return;
     this.seen.add(row.id);
     await this.emitRow(row, live);
@@ -268,6 +324,7 @@ export class SupabaseTransport implements ChatTransport {
       return null;
     }
     this.seen.add(data.id as string); // don't let polling re-deliver our own message
+    this.msgIds.add(data.id as string);
     this.events.onWireLog(enc.ciphertext);
     return {
       id: data.id as string,
@@ -338,6 +395,10 @@ export class SupabaseTransport implements ChatTransport {
     if (this.extrasChannel) {
       void this.sb.removeChannel(this.extrasChannel);
       this.extrasChannel = null;
+    }
+    if (this.reactionsChannel) {
+      void this.sb.removeChannel(this.reactionsChannel);
+      this.reactionsChannel = null;
     }
   }
 }
