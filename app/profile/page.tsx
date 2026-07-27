@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useIdentity } from "@/lib/identity";
 import { Avatar } from "@/components/Avatar";
+import { QRCode } from "@/components/QRCode";
 
 export default function ProfilePage() {
   const id = useIdentity();
@@ -41,6 +42,20 @@ export default function ProfilePage() {
           Avatar upload & cross-device key sync are coming soon.
         </div>
       </div>
+
+      {id.username && (
+        <div className="mt-4 flex flex-col items-center rounded-2xl border border-brand-border bg-brand-surface/70 p-5">
+          <div className="mb-3 text-xs font-medium uppercase tracking-wide text-brand-faint">
+            Scan to add me
+          </div>
+          <div className="rounded-xl bg-[#efe9df] p-2">
+            <QRCode value={`https://solink-omega.vercel.app/?c=${encodeURIComponent(id.username)}`} size={176} />
+          </div>
+          <div className="mt-2 text-center text-[11px] text-brand-muted">
+            A friend (already on Solink) scans this to start a chat with you
+          </div>
+        </div>
+      )}
 
       <Link
         href="/"
