@@ -51,6 +51,20 @@ function AttachmentView({
   }, [meta, resolve]);
 
   const isImage = meta.mime.startsWith("image/");
+  const isAudio = meta.mime.startsWith("audio/");
+
+  if (isAudio) {
+    return (
+      <div className="mb-1 flex items-center gap-2">
+        <span className="text-lg">🎙️</span>
+        {url ? (
+          <audio controls src={url} className="h-9 max-w-[220px]" onClick={(e) => e.stopPropagation()} />
+        ) : (
+          <span className="text-xs opacity-70">{failed ? "🔒 couldn't load" : "decrypting…"}</span>
+        )}
+      </div>
+    );
+  }
 
   if (isImage) {
     return (

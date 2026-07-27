@@ -459,8 +459,13 @@ export function ChatShell({
         ],
       };
     });
+    const preview = file.type.startsWith("audio/")
+      ? "🎙️ Voice message"
+      : file.type.startsWith("image/")
+        ? "📷 Photo"
+        : "📎 " + file.name;
     setContacts((prev) =>
-      prev.map((c) => (c.username === activeContact ? { ...c, lastText: "📎 " + file.name } : c))
+      prev.map((c) => (c.username === activeContact ? { ...c, lastText: preview } : c))
     );
   }
 
