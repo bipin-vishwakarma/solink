@@ -116,6 +116,75 @@ export async function deriveSharedKey(
   );
 }
 
+// ---------- cross-device key backup ----------
+// Wrap this device's ECDH private key under a user passphrase so it can be
+// restored on another device (and thus decrypt old history). The passphrase
+// never leaves the browser; only the passphrase-encrypted blob is stored.
+
+const KDF_ITERATIONS = 210000;
+
+async function deriveWrapKey(passphrase: string, salt: BufferSource): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(passphrase),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations: KDF_ITERATIONS, hash: "SHA-256" },
+    base,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+/** Produce an opaque, passphrase-encrypted backup string of the device key pair. */
+export async function backupKeyPair(keyPair: CryptoKeyPair, passphrase: string): Promise<string> {
+  const jwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey); // includes d + x/y
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const wrapKey = await deriveWrapKey(passphrase, salt);
+  const ct = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    wrapKey,
+    new TextEncoder().encode(JSON.stringify(jwk))
+  );
+  const env = { v: 1, salt: bufToB64(salt.buffer), iv: bufToB64(iv.buffer), ct: bufToB64(ct) };
+  return btoa(JSON.stringify(env));
+}
+
+/**
+ * Restore a key pair from a backup string + passphrase, and persist it as THIS
+ * device's key pair. Throws if the passphrase is wrong (AES-GCM auth fails).
+ */
+export async function restoreKeyPair(backup: string, passphrase: string): Promise<CryptoKeyPair> {
+  const env = JSON.parse(atob(backup)) as { salt: string; iv: string; ct: string };
+  const salt = new Uint8Array(b64ToBuf(env.salt));
+  const iv = new Uint8Array(b64ToBuf(env.iv));
+  const wrapKey = await deriveWrapKey(passphrase, salt);
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, wrapKey, b64ToBuf(env.ct));
+  const jwk = JSON.parse(new TextDecoder().decode(plain)) as JsonWebKey;
+  const privateKey = await crypto.subtle.importKey(
+    "jwk",
+    jwk,
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveKey"]
+  );
+  const publicKey = await crypto.subtle.importKey(
+    "jwk",
+    { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y },
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    []
+  );
+  const pair = { privateKey, publicKey } as CryptoKeyPair;
+  await idbSet(MY_KEYPAIR_ID, pair);
+  return pair;
+}
+
 // ---------- message encryption ----------
 
 export interface Encrypted {

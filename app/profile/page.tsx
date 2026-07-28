@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { Avatar } from "@/components/Avatar";
 import { QRCode } from "@/components/QRCode";
 import { ImageCropper } from "@/components/ImageCropper";
+import { getOrCreateKeyPair, backupKeyPair, restoreKeyPair, exportPublicKey } from "@/lib/crypto";
 
 export default function ProfilePage() {
   const id = useIdentity();
@@ -15,9 +16,79 @@ export default function ProfilePage() {
   const [cropFile, setCropFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // ---- cross-device key backup ----
+  const [backupExists, setBackupExists] = useState(false);
+  const [kbBusy, setKbBusy] = useState(false);
+  const [kbMsg, setKbMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [backupPass, setBackupPass] = useState("");
+  const [restorePass, setRestorePass] = useState("");
+  const [showRestore, setShowRestore] = useState(false);
+
   useEffect(() => {
     setAvatarUrl(id.avatarUrl);
   }, [id.avatarUrl]);
+
+  useEffect(() => {
+    if (!id.userId || !supabase) return;
+    supabase
+      .from("key_backups")
+      .select("user_id")
+      .eq("user_id", id.userId)
+      .maybeSingle()
+      .then(({ data }) => setBackupExists(!!data));
+  }, [id.userId]);
+
+  async function createBackup() {
+    if (!id.userId || !supabase) return;
+    if (backupPass.length < 8) {
+      setKbMsg({ kind: "err", text: "Use a passphrase of at least 8 characters." });
+      return;
+    }
+    setKbBusy(true);
+    setKbMsg(null);
+    try {
+      const kp = await getOrCreateKeyPair();
+      const blob = await backupKeyPair(kp, backupPass);
+      const { error } = await supabase
+        .from("key_backups")
+        .upsert({ user_id: id.userId, blob }, { onConflict: "user_id" });
+      if (error) throw error;
+      setBackupExists(true);
+      setBackupPass("");
+      setKbMsg({ kind: "ok", text: "Backup saved. Keep your passphrase safe — it can't be reset." });
+    } catch {
+      setKbMsg({ kind: "err", text: "Couldn't save the backup. Try again." });
+    } finally {
+      setKbBusy(false);
+    }
+  }
+
+  async function restoreBackup() {
+    if (!id.userId || !supabase) return;
+    setKbBusy(true);
+    setKbMsg(null);
+    try {
+      const { data } = await supabase
+        .from("key_backups")
+        .select("blob")
+        .eq("user_id", id.userId)
+        .maybeSingle();
+      if (!data?.blob) {
+        setKbMsg({ kind: "err", text: "No backup found for this account." });
+        return;
+      }
+      const kp = await restoreKeyPair(data.blob, restorePass); // throws on wrong passphrase
+      // Republish the restored public key so peers encrypt to the key we now hold.
+      const pub = await exportPublicKey(kp.publicKey);
+      await supabase.from("profiles").update({ public_key: pub }).eq("id", id.userId);
+      setKbMsg({ kind: "ok", text: "Key restored. Reloading…" });
+      setTimeout(() => window.location.assign("/"), 900);
+    } catch {
+      setKbMsg({ kind: "err", text: "Wrong passphrase, or the backup is unreadable." });
+    } finally {
+      setKbBusy(false);
+    }
+  }
 
   async function uploadAvatar(blob: Blob) {
     if (!id.userId || !supabase) return;
@@ -95,10 +166,90 @@ export default function ProfilePage() {
             verify no one is intercepting your chats.
           </div>
         </div>
-        <div className="px-4 py-3 text-xs text-brand-muted">
-          Cross-device key sync is coming soon.
-        </div>
       </div>
+
+      {canUpload && (
+        <div className="mt-4 overflow-hidden rounded-2xl border border-brand-border bg-brand-surface/70">
+          <div className="border-b border-brand-border px-4 py-3">
+            <div className="text-xs font-medium uppercase tracking-wide text-brand-faint">
+              Cross-device key backup
+            </div>
+            <div className="mt-1 text-[11px] text-brand-muted">
+              Encrypt this device&apos;s key with a passphrase so you can restore it — and read
+              your history — on another device. The passphrase never leaves your device and
+              can&apos;t be reset, so don&apos;t lose it.
+            </div>
+          </div>
+
+          <div className="space-y-3 px-4 py-3">
+            {kbMsg && (
+              <div className={`text-xs ${kbMsg.kind === "ok" ? "text-brand-online" : "text-red-400"}`}>
+                {kbMsg.text}
+              </div>
+            )}
+
+            {!showRestore ? (
+              <>
+                <div className="flex items-center gap-2 text-[11px]">
+                  <span className={backupExists ? "text-brand-online" : "text-brand-faint"}>
+                    {backupExists ? "✓ A backup exists for this account" : "No backup yet"}
+                  </span>
+                </div>
+                <input
+                  type="password"
+                  value={backupPass}
+                  onChange={(e) => setBackupPass(e.target.value)}
+                  placeholder="Backup passphrase (min 8 chars)"
+                  className="w-full rounded-xl border border-brand-border bg-black/25 px-3 py-2 text-sm text-brand-text outline-none focus:border-brand-accent"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={createBackup}
+                    disabled={kbBusy}
+                    className="pressable flex-1 rounded-xl bg-brand-accent py-2 text-sm font-medium text-white transition hover:bg-brand-accentHover disabled:opacity-60"
+                  >
+                    {kbBusy ? "Working…" : backupExists ? "Update backup" : "Back up my key"}
+                  </button>
+                  <button
+                    onClick={() => { setShowRestore(true); setKbMsg(null); }}
+                    className="pressable rounded-xl border border-brand-border px-3 py-2 text-sm text-brand-muted hover:bg-white/5"
+                  >
+                    Restore
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-[11px] text-brand-muted">
+                  Restoring replaces this device&apos;s key with your backed-up key.
+                </div>
+                <input
+                  type="password"
+                  value={restorePass}
+                  onChange={(e) => setRestorePass(e.target.value)}
+                  placeholder="Enter your backup passphrase"
+                  className="w-full rounded-xl border border-brand-border bg-black/25 px-3 py-2 text-sm text-brand-text outline-none focus:border-brand-accent"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={restoreBackup}
+                    disabled={kbBusy || !restorePass}
+                    className="pressable flex-1 rounded-xl bg-brand-accent py-2 text-sm font-medium text-white transition hover:bg-brand-accentHover disabled:opacity-60"
+                  >
+                    {kbBusy ? "Restoring…" : "Restore on this device"}
+                  </button>
+                  <button
+                    onClick={() => { setShowRestore(false); setKbMsg(null); }}
+                    className="pressable rounded-xl border border-brand-border px-3 py-2 text-sm text-brand-muted hover:bg-white/5"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {id.username && (
         <div className="mt-4 flex flex-col items-center rounded-2xl border border-brand-border bg-brand-surface/70 p-5">

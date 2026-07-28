@@ -8,6 +8,22 @@ create table if not exists public.profiles (
   public_key text not null,
   created_at timestamptz not null default now()
 );
+-- Cross-device key backup: the device private key wrapped under a user
+-- passphrase (PBKDF2 + AES-GCM). Opaque ciphertext — useless without the
+-- passphrase, which never leaves the browser. Kept in its own table so RLS can
+-- restrict reads to the owner (profiles are readable by others for peer lookup).
+create table if not exists public.key_backups (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  blob text not null,
+  updated_at timestamptz not null default now()
+);
+alter table public.key_backups enable row level security;
+create policy "own key backup select" on public.key_backups
+  for select using (user_id = auth.uid());
+create policy "own key backup upsert" on public.key_backups
+  for insert with check (user_id = auth.uid());
+create policy "own key backup update" on public.key_backups
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- 2. Conversations (a 1-on-1 thread).
 create table if not exists public.conversations (
