@@ -64,6 +64,9 @@ create policy "messages insert by sender-member" on public.messages
   for insert with check (
     sender_id = auth.uid() and public.is_member(conversation_id)
   );
+-- Unsend: a sender can delete their own messages (removes for everyone).
+create policy "messages deletable by sender" on public.messages
+  for delete using (sender_id = auth.uid());
 
 -- Members: you can see rows for conversations you belong to.
 create policy "members readable" on public.conversation_members

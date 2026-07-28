@@ -156,6 +156,22 @@ body.chat-locked {
   }
 }
 
+/* loading placeholder shimmer */
+@keyframes skeleton-sweep {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--brand-surface2)) 25%,
+    rgb(var(--brand-border)) 37%,
+    rgb(var(--brand-surface2)) 63%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+
 @keyframes typing-bounce {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
   30% { transform: translateY(-4px); opacity: 1; }

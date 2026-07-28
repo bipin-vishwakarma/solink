@@ -156,6 +156,8 @@ export function MessageBubble({
   reactions,
   onReact,
   onOpenImage,
+  onRetry,
+  onDelete,
 }: {
   msg: ChatMessage;
   grouped?: boolean;
@@ -164,6 +166,8 @@ export function MessageBubble({
   reactions?: ReactionSummary[];
   onReact?: (emoji: string) => void;
   onOpenImage?: (url: string, name: string) => void;
+  onRetry?: () => void;
+  onDelete?: () => void;
 }) {
   const [showReactBar, setShowReactBar] = useState(false);
   const touchStartX = useRef<number | null>(null);
@@ -208,6 +212,19 @@ export function MessageBubble({
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
             <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
             <path d="M9 10h.01M15 10h.01M8.5 14a4 4 0 007 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
+      {msg.mine && onDelete && (
+        <button
+          onClick={() => {
+            if (msg.status === "failed" || confirm("Unsend this message for everyone?")) onDelete();
+          }}
+          className="rounded-full bg-brand-surface2 p-1.5 text-brand-muted hover:text-red-400"
+          title="Unsend"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
       )}
@@ -282,11 +299,26 @@ export function MessageBubble({
           </div>
         )}
         <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${msg.mine ? "text-white/75" : "text-brand-faint"}`}>
-          {timeOf(msg.ts)}
-          {msg.mine && (
-            <span className={msg.read ? "text-[#53bdeb]" : ""}>
-              <Ticks />
-            </span>
+          {msg.mine && msg.status === "failed" ? (
+            <button
+              onClick={onRetry}
+              className="flex items-center gap-1 font-medium text-red-200 underline decoration-red-200/60 underline-offset-2"
+              title="Tap to retry"
+            >
+              ⚠ Not sent · Retry
+            </button>
+          ) : (
+            <>
+              {timeOf(msg.ts)}
+              {msg.mine &&
+                (msg.status === "sending" ? (
+                  <span className="opacity-70" title="Sending…">🕓</span>
+                ) : (
+                  <span className={msg.read ? "text-[#53bdeb]" : ""}>
+                    <Ticks />
+                  </span>
+                ))}
+            </>
           )}
         </div>
         {reactions && reactions.length > 0 && (

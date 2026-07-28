@@ -144,6 +144,19 @@ export class SupabaseTransport implements ChatTransport {
           if (row.reader_id !== this.ctx.userId) this.events.onRead?.([row.message_id]);
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "messages" },
+        (payload) => {
+          // REPLICA IDENTITY FULL gives us the whole old row. Scope to this chat.
+          const old = payload.old as { id?: string; conversation_id?: string };
+          if (old?.id && old.conversation_id === this.conversationId) {
+            this.seen.delete(old.id);
+            this.msgIds.delete(old.id);
+            this.events.onDeleted?.(old.id);
+          }
+        }
+      )
       .on("presence", { event: "sync" }, () => {
         if (!this.extrasChannel) return;
         const state = this.extrasChannel.presenceState() as Record<string, Array<{ user?: string }>>;
@@ -371,6 +384,22 @@ export class SupabaseTransport implements ChatTransport {
       event: "typing",
       payload: { from: this.ctx.userId, isTyping },
     });
+  }
+
+  async deleteMessage(messageId: string): Promise<boolean> {
+    // RLS only lets a sender delete their own rows; the eq() makes that explicit.
+    const { error } = await this.sb
+      .from("messages")
+      .delete()
+      .eq("id", messageId)
+      .eq("sender_id", this.ctx.userId);
+    if (error) {
+      this.events.onError?.(error.message);
+      return false;
+    }
+    this.seen.delete(messageId);
+    this.msgIds.delete(messageId);
+    return true;
   }
 
   markRead(ids: string[]) {

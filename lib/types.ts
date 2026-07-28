@@ -26,6 +26,7 @@ export interface ChatMessage {
   replyTo?: ReplyRef;
   attachment?: AttachmentMeta;
   read?: boolean; // for our own messages: has the peer read it? (blue ticks)
+  status?: "sending" | "failed"; // our own messages: delivery state (absent = sent)
 }
 
 // What actually travels over the wire — no plaintext, ever.
@@ -68,6 +69,7 @@ export interface TransportEvents {
   onPresence?: (online: boolean, lastSeen?: number) => void; // peer online/last-seen
   // a reaction was added/changed/removed. emoji "" means removed. reactorId keys the reactor.
   onReaction?: (messageId: string, reactorId: string, emoji: string, mine: boolean) => void;
+  onDeleted?: (messageId: string) => void; // a message was unsent (by us on another device, or the peer)
 }
 
 // Common shape implemented by both the local (demo) and Supabase (cloud) transports.
@@ -83,5 +85,7 @@ export interface ChatTransport {
   resolveAttachment?: (ref: AttachmentRef) => Promise<Blob | null>;
   markRead?: (messageIds: string[]) => void; // tell the peer we've read these
   sendReaction?: (messageId: string, emoji: string) => void; // emoji "" removes ours
+  deleteMessage?: (messageId: string) => Promise<boolean>; // unsend one of our own messages
+  loadOlder?: () => Promise<number>; // page in older history; returns how many were loaded
   destroy: () => void;
 }

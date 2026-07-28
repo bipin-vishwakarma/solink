@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AttachmentRef, ChatMessage, ChatTransport, InboxActivity, ReactionSummary, TransportEvents } from "@/lib/types";
+import type { AttachmentRef, ChatMessage, ChatTransport, InboxActivity, ReactionSummary, ReplyRef, TransportEvents } from "@/lib/types";
 import { MessageBubble } from "./MessageBubble";
 import { CodeSnippet } from "./CodeSnippet";
 import { BossModeIDE } from "./BossModeIDE";
@@ -317,6 +317,13 @@ export function ChatShell({
           return { ...prev, [messageId]: cur };
         });
       },
+      onDeleted: (messageId) => {
+        setMessagesByContact((prev) => {
+          const list = prev[activeContact] || [];
+          if (!list.some((m) => m.id === messageId)) return prev;
+          return { ...prev, [activeContact]: list.filter((m) => m.id !== messageId) };
+        });
+      },
     };
 
     const t = makeTransportRef.current(activeContact, events);
@@ -453,27 +460,89 @@ export function ChatShell({
   async function send(text: string) {
     const t = transportRef.current;
     if (!t || !activeContact) return;
-    const reply = replyingTo
+    const contact = activeContact;
+    const reply: ReplyRef | undefined = replyingTo
       ? { id: replyingTo.id, preview: replyingTo.text.slice(0, 90), mine: replyingTo.mine }
       : undefined;
+    setReplyingTo(null);
     atBottomRef.current = true;
+
+    // Optimistic: show the bubble immediately in a "sending" state, then reconcile
+    // to the server id on success or mark it "failed" (tap-to-retry) on failure.
+    const tempId = "tmp-" + crypto.randomUUID();
+    const ts = Date.now();
+    setMessagesByContact((prev) => ({
+      ...prev,
+      [contact]: [
+        ...(prev[contact] || []),
+        { id: tempId, mine: true, text, ts, senderName: myName, replyTo: reply, status: "sending" },
+      ],
+    }));
+    setContacts((prev) =>
+      prev.map((c) => (c.username === contact ? { ...c, lastText: text, lastActivity: ts } : c))
+    );
+
     const payload = await t.send(encodeMessage(text, reply));
-    if (!payload) return;
     setMessagesByContact((prev) => {
-      const list = prev[activeContact] || [];
-      if (list.some((m) => m.id === payload.id)) return prev;
+      const list = prev[contact] || [];
       return {
         ...prev,
-        [activeContact]: [
-          ...list,
-          { id: payload.id, mine: true, text, ts: payload.ts, senderName: myName, replyTo: reply },
-        ],
+        [contact]: list.map((m) =>
+          m.id === tempId
+            ? payload
+              ? { ...m, id: payload.id, ts: payload.ts, status: undefined }
+              : { ...m, status: "failed" }
+            : m
+        ),
       };
     });
-    setContacts((prev) =>
-      prev.map((c) => (c.username === activeContact ? { ...c, lastText: text, lastActivity: payload.ts } : c))
-    );
-    setReplyingTo(null);
+  }
+
+  // Re-send a message that previously failed (tap the ⚠ bubble).
+  async function retryMessage(m: ChatMessage) {
+    const t = transportRef.current;
+    if (!t || !activeContact || m.status !== "failed") return;
+    const contact = activeContact;
+    setMessagesByContact((prev) => ({
+      ...prev,
+      [contact]: (prev[contact] || []).map((x) => (x.id === m.id ? { ...x, status: "sending" } : x)),
+    }));
+    const reply = m.replyTo;
+    const payload = await t.send(encodeMessage(m.text, reply));
+    setMessagesByContact((prev) => {
+      const list = prev[contact] || [];
+      return {
+        ...prev,
+        [contact]: list.map((x) =>
+          x.id === m.id
+            ? payload
+              ? { ...x, id: payload.id, ts: payload.ts, status: undefined }
+              : { ...x, status: "failed" }
+            : x
+        ),
+      };
+    });
+  }
+
+  // Unsend one of our own messages (removes it for us + the peer).
+  async function deleteMessage(m: ChatMessage) {
+    if (!m.mine || !activeContact) return;
+    const contact = activeContact;
+    const snapshot = messagesByContact[contact] || [];
+    // Optimistic removal.
+    setMessagesByContact((prev) => ({
+      ...prev,
+      [contact]: (prev[contact] || []).filter((x) => x.id !== m.id),
+    }));
+    // A failed/never-sent message has no server row — just drop it locally.
+    if (m.status === "failed" || m.id.startsWith("tmp-")) return;
+    const t = transportRef.current;
+    const ok = t?.deleteMessage ? await t.deleteMessage(m.id) : false;
+    if (!ok) {
+      // Roll back if the server refused.
+      setMessagesByContact((prev) => ({ ...prev, [contact]: snapshot }));
+      flash("Couldn't delete message");
+    }
   }
 
   function flash(msg: string) {
@@ -730,7 +799,21 @@ export function ChatShell({
                 stealth ? "bg-ide-bg py-2" : "px-3 py-4 sm:px-5"
               }`}
             >
-              {messages.length === 0 && !error && (
+              {connecting && messages.length === 0 && !error && !stealth && (
+                <div className="space-y-3">
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <div key={i} className={`flex ${i % 2 ? "justify-end" : "justify-start"}`}>
+                      <div
+                        className={`skeleton h-9 rounded-2xl ${
+                          i % 2 ? "rounded-br-sm" : "rounded-bl-sm"
+                        }`}
+                        style={{ width: `${120 + ((i * 47) % 130)}px` }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!connecting && messages.length === 0 && !error && (
                 <div className="mt-12 text-center text-sm text-brand-faint">
                   {stealth
                     ? "// no entries yet — tap a line to reveal"
@@ -777,6 +860,8 @@ export function ChatShell({
                           reactions={aggregateReactions(m.id)}
                           onReact={(e) => react(m.id, e)}
                           onOpenImage={(url, name) => setLightbox({ url, name })}
+                          onRetry={() => retryMessage(m)}
+                          onDelete={() => deleteMessage(m)}
                         />
                       </div>
                     );

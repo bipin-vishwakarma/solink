@@ -32,6 +32,7 @@ type Signal =
   | { kind: "typing"; from: string; isTyping: boolean }
   | { kind: "read"; from: string; ids: string[] }
   | { kind: "reaction"; from: string; messageId: string; emoji: string }
+  | { kind: "delete"; from: string; id: string }
   | ({ kind: "msg"; from: string } & WirePayload);
 
 const BOT_REPLIES = [
@@ -131,6 +132,11 @@ export class LocalTransport implements ChatTransport {
       return;
     }
 
+    if (sig.kind === "delete") {
+      this.events.onDeleted?.(sig.id);
+      return;
+    }
+
     if (sig.kind === "msg") {
       if (!this.sharedKey) return;
       try {
@@ -196,6 +202,11 @@ export class LocalTransport implements ChatTransport {
   markRead(ids: string[]) {
     if (this.simulated || ids.length === 0) return;
     this.post({ kind: "read", from: this.myPeerId, ids });
+  }
+
+  async deleteMessage(messageId: string): Promise<boolean> {
+    if (!this.simulated) this.post({ kind: "delete", from: this.myPeerId, id: messageId });
+    return true;
   }
 
   sendReaction(messageId: string, emoji: string) {
