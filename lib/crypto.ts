@@ -185,6 +185,43 @@ export async function restoreKeyPair(backup: string, passphrase: string): Promis
   return pair;
 }
 
+// ---------- group encryption (pairwise fan-out) ----------
+// A group message is encrypted once PER recipient using the same pairwise ECDH
+// shared key the two members already use for 1-on-1. No new key material or
+// server trust: the server stores a { recipientId -> {ciphertext, iv} } map, and
+// each member decrypts only their own entry. Reuses the 1-on-1 primitives.
+
+export interface GroupMember {
+  id: string;
+  publicKey: string; // base64 spki
+}
+
+/** Encrypt `text` for every recipient, returning a map keyed by recipient id. */
+export async function encryptForRecipients(
+  myPrivate: CryptoKey,
+  recipients: GroupMember[],
+  text: string
+): Promise<Record<string, Encrypted>> {
+  const out: Record<string, Encrypted> = {};
+  for (const r of recipients) {
+    const pub = await importPublicKey(r.publicKey);
+    const shared = await deriveSharedKey(myPrivate, pub);
+    out[r.id] = await encryptMessage(shared, text);
+  }
+  return out;
+}
+
+/** Decrypt the entry addressed to me, using the sender's public key. */
+export async function decryptFromSender(
+  myPrivate: CryptoKey,
+  senderPublicKey: string,
+  entry: Encrypted
+): Promise<string> {
+  const pub = await importPublicKey(senderPublicKey);
+  const shared = await deriveSharedKey(myPrivate, pub);
+  return decryptMessage(shared, entry);
+}
+
 // ---------- message encryption ----------
 
 export interface Encrypted {
