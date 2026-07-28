@@ -20,6 +20,10 @@ export function Sidebar({
   onSelect,
   onConnect,
   onSignOut,
+  groups = [],
+  activeGroupId = null,
+  onSelectGroup,
+  onNewGroup,
   className = "",
 }: {
   myName: string;
@@ -29,6 +33,10 @@ export function Sidebar({
   onSelect: (username: string) => void;
   onConnect: (username: string) => Promise<string | null>;
   onSignOut?: () => void;
+  groups?: { id: string; name: string }[];
+  activeGroupId?: string | null;
+  onSelectGroup?: (id: string) => void;
+  onNewGroup?: () => void;
   className?: string;
 }) {
   const [query, setQuery] = useState("");
@@ -121,8 +129,38 @@ export function Sidebar({
         )}
       </div>
 
-      {/* contacts */}
+      {/* contacts + groups */}
       <div className="mt-1 flex-1 overflow-y-auto px-2 pb-3">
+        {onNewGroup && (
+          <>
+            <div className="flex items-center justify-between px-2 py-1">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-brand-faint">Groups</span>
+              <button
+                onClick={onNewGroup}
+                className="pressable rounded-full px-2 py-0.5 text-[11px] font-medium text-brand-accent hover:bg-brand-accentSoft"
+              >
+                ＋ New
+              </button>
+            </div>
+            {groups.map((g) => {
+              const active = g.id === activeGroupId;
+              return (
+                <button
+                  key={g.id}
+                  onClick={() => onSelectGroup?.(g.id)}
+                  className={`pressable mb-0.5 flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition ${
+                    active ? "bg-brand-accentSoft" : "hover:bg-white/5 active:bg-white/10"
+                  }`}
+                >
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-accentSoft text-lg">
+                    👥
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-brand-text">{g.name}</span>
+                </button>
+              );
+            })}
+          </>
+        )}
         <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-brand-faint">
           Chats
         </div>

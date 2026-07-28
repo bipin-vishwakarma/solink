@@ -158,6 +158,7 @@ export function MessageBubble({
   onOpenImage,
   onRetry,
   onDelete,
+  showSender = false,
 }: {
   msg: ChatMessage;
   grouped?: boolean;
@@ -168,6 +169,7 @@ export function MessageBubble({
   onOpenImage?: (url: string, name: string) => void;
   onRetry?: () => void;
   onDelete?: () => void;
+  showSender?: boolean;
 }) {
   const [showReactBar, setShowReactBar] = useState(false);
   const touchStartX = useRef<number | null>(null);
@@ -275,6 +277,9 @@ export function MessageBubble({
             : grouped ? "rounded-2xl rounded-bl-sm" : "rounded-2xl rounded-tl-md rounded-bl-sm"
         }`}
       >
+        {showSender && !msg.mine && (
+          <div className="mb-0.5 text-[11px] font-semibold text-brand-accent">{msg.senderName}</div>
+        )}
         {msg.replyTo && (
           <div
             className={`mb-1 rounded-lg border-l-2 px-2 py-1 text-[12px] ${

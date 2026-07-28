@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase, type Profile } from "@/lib/supabaseClient";
 import { getOrCreateKeyPair, exportPublicKey } from "@/lib/crypto";
 import { SupabaseTransport, type CloudContext } from "@/lib/supabaseTransport";
+import { GroupTransport, type GroupContext, type GroupEvents } from "@/lib/groupTransport";
 import type { InboxActivity } from "@/lib/types";
 import { ChatShell, type TransportFactory } from "./ChatShell";
 
@@ -137,6 +138,52 @@ export function CloudApp() {
     [sb, userId]
   );
 
+  const makeGroupTransport = useCallback(
+    (groupId: string, events: GroupEvents) => {
+      const ctx: GroupContext = {
+        supabase: sb,
+        userId: userId as string,
+        username: (profile as Profile).username,
+        keyPair: keyPair as CryptoKeyPair,
+      };
+      return new GroupTransport(groupId, events, ctx);
+    },
+    [sb, userId, profile, keyPair]
+  );
+
+  // The user's groups (RLS scopes the query to groups they belong to).
+  const listGroups = useCallback(async () => {
+    const { data } = await sb.from("groups").select("id, name").order("created_at", { ascending: false });
+    return ((data as { id: string; name: string }[] | null) || []);
+  }, [sb]);
+
+  // Create a group, seed the creator as the first member, then add the rest.
+  const createGroup = useCallback(
+    async (name: string, memberUsernames: string[]) => {
+      if (!userId) return null;
+      const { data: g, error } = await sb
+        .from("groups")
+        .insert({ name: name.trim() || "Group", created_by: userId })
+        .select("id, name")
+        .single();
+      if (error || !g) return null;
+      await sb.from("group_members").insert({ group_id: g.id, user_id: userId });
+      if (memberUsernames.length) {
+        const { data: profs } = await sb
+          .from("profiles")
+          .select("id, username")
+          .in("username", memberUsernames);
+        const ids = ((profs as { id: string }[] | null) || [])
+          .map((p) => p.id)
+          .filter((pid) => pid !== userId);
+        if (ids.length)
+          await sb.from("group_members").insert(ids.map((pid) => ({ group_id: g.id, user_id: pid })));
+      }
+      return g as { id: string; name: string };
+    },
+    [sb, userId]
+  );
+
   // Only let users start a chat with a username that actually exists.
   const validateUsername = useCallback(
     async (u: string) => {
@@ -263,6 +310,9 @@ export function CloudApp() {
       makeTransport={makeTransport}
       makeInboxSubscription={makeInboxSubscription}
       validateUsername={validateUsername}
+      makeGroupTransport={makeGroupTransport}
+      listGroups={listGroups}
+      createGroup={createGroup}
       onSignOut={signOut}
     />
   );

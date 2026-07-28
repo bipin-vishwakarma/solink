@@ -11,6 +11,9 @@ import { Composer } from "./Composer";
 import { TypingDots } from "./TypingDots";
 import { ImageLightbox } from "./ImageLightbox";
 import { ImageCropper } from "./ImageCropper";
+import { GroupChatView } from "./GroupChatView";
+import { NewGroupModal } from "./NewGroupModal";
+import type { GroupTransport, GroupEvents } from "@/lib/groupTransport";
 import { requestNotifyPermission, showMessageNotification, notifyPermission } from "@/lib/notify";
 import { encodeMessage, decodeMessage } from "@/lib/envelope";
 
@@ -63,6 +66,9 @@ export function ChatShell({
   makeTransport,
   makeInboxSubscription,
   validateUsername,
+  makeGroupTransport,
+  listGroups,
+  createGroup,
   onSignOut,
 }: {
   myName: string;
@@ -70,11 +76,24 @@ export function ChatShell({
   makeTransport: TransportFactory;
   makeInboxSubscription?: (onActivity: (a: InboxActivity) => void) => () => void;
   validateUsername?: (username: string) => Promise<boolean>;
+  makeGroupTransport?: (groupId: string, events: GroupEvents) => GroupTransport;
+  listGroups?: () => Promise<{ id: string; name: string }[]>;
+  createGroup?: (name: string, memberUsernames: string[]) => Promise<{ id: string; name: string } | null>;
   onSignOut?: () => void;
 }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [activeContact, setActiveContact] = useState<string | null>(null);
   const [messagesByContact, setMessagesByContact] = useState<Record<string, ChatMessage[]>>({});
+
+  // ---- groups (additive; the 1-on-1 state above is untouched) ----
+  const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [groupName, setGroupName] = useState("");
+  const [groupMembers, setGroupMembers] = useState<{ id: string; username: string }[]>([]);
+  const [groupMsgs, setGroupMsgs] = useState<ChatMessage[]>([]);
+  const [groupConnecting, setGroupConnecting] = useState(false);
+  const [newGroupOpen, setNewGroupOpen] = useState(false);
+  const groupTransportRef = useRef<GroupTransport | null>(null);
 
   const [peerName, setPeerName] = useState("");
   const [simulated, setSimulated] = useState(false);
@@ -392,6 +411,96 @@ export function ChatShell({
       transportRef.current = null;
     };
   }, [activeContact]);
+
+  // ---- groups ----
+  const makeGroupRef = useRef(makeGroupTransport);
+  makeGroupRef.current = makeGroupTransport;
+
+  // Load the user's groups once.
+  useEffect(() => {
+    if (!listGroups) return;
+    listGroups().then(setGroups).catch(() => {});
+  }, [listGroups]);
+
+  // Opening a 1-on-1 chat closes any open group, and vice versa.
+  useEffect(() => {
+    if (activeContact) setActiveGroupId(null);
+  }, [activeContact]);
+
+  // One group transport per active group. Fully separate from the 1-on-1 path.
+  useEffect(() => {
+    if (!activeGroupId || !makeGroupRef.current) return;
+    setGroupConnecting(true);
+    setGroupName("");
+    setGroupMembers([]);
+    setGroupMsgs([]);
+    const events: GroupEvents = {
+      onReady: (name, members) => {
+        setGroupName(name);
+        setGroupMembers(members);
+        setGroupConnecting(false);
+      },
+      onMessage: (text, payload, mine) => {
+        setGroupMsgs((prev) => {
+          if (prev.some((m) => m.id === payload.id)) return prev;
+          return [
+            ...prev,
+            { id: payload.id, mine, text, ts: payload.ts, senderName: payload.senderName },
+          ].sort((a, b) => a.ts - b.ts);
+        });
+      },
+      onError: (msg) => {
+        flash(msg);
+        setGroupConnecting(false);
+      },
+    };
+    const t = makeGroupRef.current(activeGroupId, events);
+    groupTransportRef.current = t;
+    void t.start();
+    return () => {
+      t.destroy();
+      groupTransportRef.current = null;
+    };
+  }, [activeGroupId]);
+
+  function openGroup(id: string) {
+    setActiveContact(null);
+    setActiveGroupId(id);
+  }
+
+  async function sendGroup(text: string) {
+    const t = groupTransportRef.current;
+    if (!t) return;
+    atBottomRef.current = true;
+    const tempId = "tmp-" + crypto.randomUUID();
+    const ts = Date.now();
+    setGroupMsgs((prev) => [
+      ...prev,
+      { id: tempId, mine: true, text, ts, senderName: myName, status: "sending" },
+    ]);
+    const payload = await t.send(text);
+    setGroupMsgs((prev) =>
+      prev.map((m) =>
+        m.id === tempId
+          ? payload
+            ? { ...m, id: payload.id, ts: payload.ts, status: undefined }
+            : { ...m, status: "failed" }
+          : m
+      )
+    );
+  }
+
+  async function handleCreateGroup(name: string, members: string[]) {
+    if (!createGroup) return;
+    const g = await createGroup(name, members);
+    if (!g) {
+      flash("Couldn't create group");
+      return;
+    }
+    setGroups((prev) => [g, ...prev.filter((x) => x.id !== g.id)]);
+    setNewGroupOpen(false);
+    openGroup(g.id);
+  }
 
   // Restore the (disguised) tab title when the user comes back.
   useEffect(() => {
@@ -765,14 +874,28 @@ export function ChatShell({
         onSelect={setActiveContact}
         onConnect={connectTo}
         onSignOut={onSignOut}
-        className={`md:w-80 md:shrink-0 ${activeContact ? "hidden md:flex" : "flex"}`}
+        groups={groups}
+        activeGroupId={activeGroupId}
+        onSelectGroup={openGroup}
+        onNewGroup={createGroup ? () => setNewGroupOpen(true) : undefined}
+        className={`md:w-80 md:shrink-0 ${activeContact || activeGroupId ? "hidden md:flex" : "flex"}`}
       />
 
       <section
-        key={activeContact || "none"}
-        className={`chat-enter relative min-w-0 flex-1 flex-col ${activeContact ? "flex" : "hidden md:flex"}`}
+        key={activeGroupId || activeContact || "none"}
+        className={`chat-enter relative min-w-0 flex-1 flex-col ${activeContact || activeGroupId ? "flex" : "hidden md:flex"}`}
       >
-        {!activeContact ? (
+        {activeGroupId ? (
+          <GroupChatView
+            name={groupName}
+            members={groupMembers}
+            messages={groupMsgs}
+            connecting={groupConnecting}
+            myName={myName}
+            onBack={() => setActiveGroupId(null)}
+            onSend={sendGroup}
+          />
+        ) : !activeContact ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
             <div className="mb-4 text-5xl">🔗</div>
             <h2 className="mb-1 text-lg font-semibold text-brand-text">No chat selected</h2>
@@ -1078,6 +1201,14 @@ export function ChatShell({
           contacts={contacts.map((c) => c.username).filter((u) => u !== activeContact)}
           onForward={forwardImage}
           onClose={() => setLightbox(null)}
+        />
+      )}
+
+      {newGroupOpen && (
+        <NewGroupModal
+          contacts={contacts.map((c) => c.username)}
+          onCancel={() => setNewGroupOpen(false)}
+          onCreate={handleCreateGroup}
         />
       )}
     </main>
