@@ -23,6 +23,7 @@ import type {
 import type { Profile } from "./supabaseClient";
 
 const ATTACH_BUCKET = "attachments";
+const HISTORY_PAGE = 40; // messages loaded per page (initial + each "load older")
 
 export interface CloudContext {
   supabase: SupabaseClient;
@@ -51,6 +52,8 @@ export class SupabaseTransport implements ChatTransport {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private seen = new Set<string>(); // message ids already delivered to the UI
   private msgIds = new Set<string>(); // message ids in this conversation (for reaction filtering)
+  private oldestCreatedAt: string | null = null; // paging cursor for "load older"
+  private historyExhausted = false; // no more older messages to load
 
   constructor(
     private peerUsername: string,
@@ -96,14 +99,18 @@ export class SupabaseTransport implements ChatTransport {
     }
     this.conversationId = convId as string;
 
-    // 4. Load + decrypt history.
+    // 4. Load + decrypt the most recent page of history (older pages load on demand).
     const { data: history } = await this.sb
       .from("messages")
       .select("id, conversation_id, sender_id, ciphertext, iv, created_at")
       .eq("conversation_id", this.conversationId)
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: false })
+      .limit(HISTORY_PAGE);
 
-    for (const row of (history as MessageRow[] | null) || []) {
+    const initial = ((history as MessageRow[] | null) || []).reverse(); // back to chronological
+    if (initial.length < HISTORY_PAGE) this.historyExhausted = true;
+    if (initial.length) this.oldestCreatedAt = initial[0].created_at;
+    for (const row of initial) {
       await this.deliver(row, /* live */ false);
     }
 
@@ -384,6 +391,28 @@ export class SupabaseTransport implements ChatTransport {
       event: "typing",
       payload: { from: this.ctx.userId, isTyping },
     });
+  }
+
+  /** Page in the next batch of older messages. Returns how many were delivered. */
+  async loadOlder(): Promise<number> {
+    if (!this.conversationId || this.historyExhausted || !this.oldestCreatedAt) return 0;
+    const { data } = await this.sb
+      .from("messages")
+      .select("id, conversation_id, sender_id, ciphertext, iv, created_at")
+      .eq("conversation_id", this.conversationId)
+      .lt("created_at", this.oldestCreatedAt)
+      .order("created_at", { ascending: false })
+      .limit(HISTORY_PAGE);
+    const rows = ((data as MessageRow[] | null) || []).reverse();
+    if (rows.length < HISTORY_PAGE) this.historyExhausted = true;
+    if (rows.length) this.oldestCreatedAt = rows[0].created_at;
+    let delivered = 0;
+    for (const row of rows) {
+      if (this.seen.has(row.id)) continue;
+      await this.deliver(row, /* live */ false);
+      delivered++;
+    }
+    return delivered;
   }
 
   async deleteMessage(messageId: string): Promise<boolean> {

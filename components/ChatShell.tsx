@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AttachmentRef, ChatMessage, ChatTransport, InboxActivity, ReactionSummary, ReplyRef, TransportEvents } from "@/lib/types";
 import { MessageBubble } from "./MessageBubble";
 import { CodeSnippet } from "./CodeSnippet";
@@ -92,6 +92,7 @@ export function ChatShell({
   const [notifyOn, setNotifyOn] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [reactionsByMsg, setReactionsByMsg] = useState<
     Record<string, Record<string, { emoji: string; mine: boolean }>>
@@ -113,6 +114,9 @@ export function ChatShell({
   const typingClear = useRef<ReturnType<typeof setTimeout> | null>(null);
   const markedRef = useRef<Set<string>>(new Set());
   const atBottomRef = useRef(true);
+  const loadingOlderRef = useRef(false);
+  const restoreScrollRef = useRef<number | null>(null); // scrollHeight snapshot for load-older compensation
+  const [loadingOlder, setLoadingOlder] = useState(false);
 
   // Live refs so the (stable) message handler always sees current UI state.
   const stealthRef = useRef(stealth);
@@ -159,6 +163,60 @@ export function ChatShell({
     [contactsKey]
   );
 
+  // Blocked usernames (lowercase), persisted per identity. Blocked people can't
+  // start chats with you and their inbox pings are ignored.
+  const blockedKey = `solink:blocked:${myName.toLowerCase()}`;
+  const [blocked, setBlocked] = useState<Set<string>>(new Set());
+  const blockedRef = useRef(blocked);
+  blockedRef.current = blocked;
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(blockedKey) || "[]");
+      if (Array.isArray(saved)) setBlocked(new Set(saved.map((u: string) => u.toLowerCase())));
+    } catch {
+      /* ignore */
+    }
+  }, [blockedKey]);
+  const persistBlocked = useCallback(
+    (set: Set<string>) => localStorage.setItem(blockedKey, JSON.stringify([...set])),
+    [blockedKey]
+  );
+
+  // Remove a chat locally (history + contact). Does not tell the other side.
+  function removeContact(username: string) {
+    const lc = username.toLowerCase();
+    setContacts((prev) => {
+      const next = prev.filter((c) => c.username.toLowerCase() !== lc);
+      persistContacts(next);
+      return next;
+    });
+    setMessagesByContact((prev) => {
+      const next = { ...prev };
+      for (const k of Object.keys(next)) if (k.toLowerCase() === lc) delete next[k];
+      return next;
+    });
+    if (activeContact?.toLowerCase() === lc) setActiveContact(null);
+  }
+
+  // Block: remove the chat and refuse future contact until unblocked.
+  function blockContact(username: string) {
+    setBlocked((prev) => {
+      const next = new Set(prev).add(username.toLowerCase());
+      persistBlocked(next);
+      return next;
+    });
+    removeContact(username);
+  }
+
+  function unblock(username: string) {
+    setBlocked((prev) => {
+      const next = new Set(prev);
+      next.delete(username.toLowerCase());
+      persistBlocked(next);
+      return next;
+    });
+  }
+
   // LIVE INBOX: a global listener for messages in ANY of my conversations — drives
   // recent-on-top sorting, unread badges, and cross-chat notifications. Runs on a
   // separate channel from the chat transport, so it can never affect message delivery.
@@ -166,6 +224,7 @@ export function ChatShell({
     if (!inboxRef.current) return;
     const unsub = inboxRef.current((a) => {
       const uname = a.fromUsername;
+      if (blockedRef.current.has(uname.toLowerCase())) return; // ignore blocked senders
       const isActive = uname.toLowerCase() === (activeContactRef.current || "").toLowerCase();
       setContacts((prev) => {
         const exists = prev.some((c) => c.username.toLowerCase() === uname.toLowerCase());
@@ -251,13 +310,12 @@ export function ChatShell({
         setMessagesByContact((prev) => {
           const list = prev[activeContact] || [];
           if (list.some((m) => m.id === payload.id)) return prev;
-          return {
-            ...prev,
-            [activeContact]: [
-              ...list,
-              { id: payload.id, mine, text, ts: payload.ts, senderName: payload.senderName, replyTo, attachment },
-            ],
-          };
+          // Keep chronological order so paged-in older messages land at the top.
+          const next = [
+            ...list,
+            { id: payload.id, mine, text, ts: payload.ts, senderName: payload.senderName, replyTo, attachment },
+          ].sort((a, b) => a.ts - b.ts);
+          return { ...prev, [activeContact]: next };
         });
         if (!mine) {
           setContacts((prev) =>
@@ -450,7 +508,29 @@ export function ChatShell({
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
     atBottomRef.current = dist < 80;
     setShowScrollBtn(dist > 240);
+    // Near the top: page in older history, preserving the scroll position.
+    if (el.scrollTop < 60 && !loadingOlderRef.current) {
+      const t = transportRef.current;
+      if (t?.loadOlder) {
+        loadingOlderRef.current = true;
+        setLoadingOlder(true);
+        restoreScrollRef.current = el.scrollHeight;
+        void t.loadOlder().then((n) => {
+          if (n === 0) restoreScrollRef.current = null;
+          loadingOlderRef.current = false;
+          setLoadingOlder(false);
+        });
+      }
+    }
   }
+
+  // After older messages prepend, keep the viewport anchored (no jump).
+  useLayoutEffect(() => {
+    if (restoreScrollRef.current == null) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop += el.scrollHeight - restoreScrollRef.current;
+    restoreScrollRef.current = null;
+  }, [messages.length]);
 
   function scrollToBottom() {
     atBottomRef.current = true;
@@ -643,6 +723,11 @@ export function ChatShell({
     const clean = username.trim();
     if (!clean) return null;
     if (clean.toLowerCase() === myName.toLowerCase()) return "That's your own username";
+    // Re-searching a blocked user unblocks them (discoverable, no settings screen needed).
+    if (blocked.has(clean.toLowerCase())) {
+      unblock(clean);
+      flash(`Unblocked @${clean}`);
+    }
     // already a contact → just open it
     const existing = contacts.find((c) => c.username.toLowerCase() === clean.toLowerCase());
     if (existing) {
@@ -777,6 +862,44 @@ export function ChatShell({
                 >
                   🚨
                 </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setHeaderMenuOpen((v) => !v)}
+                    className={`pressable rounded-lg px-2 py-1 text-xs font-medium transition ${
+                      headerMenuOpen ? "bg-white/10 text-brand-text" : "text-brand-faint hover:bg-white/5"
+                    }`}
+                    title="More"
+                  >
+                    ⋯
+                  </button>
+                  {headerMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-20" onClick={() => setHeaderMenuOpen(false)} />
+                      <div className="pop-in absolute right-0 top-9 z-30 w-52 overflow-hidden rounded-xl border border-brand-border bg-brand-surface2 shadow-2xl">
+                        <button
+                          onClick={() => {
+                            setHeaderMenuOpen(false);
+                            if (confirm(`Remove your chat with @${activeContact}? Your local history is cleared.`))
+                              removeContact(activeContact);
+                          }}
+                          className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
+                        >
+                          <span>🗑️</span> Remove chat
+                        </button>
+                        <button
+                          onClick={() => {
+                            setHeaderMenuOpen(false);
+                            if (confirm(`Block @${activeContact}? They won't be able to message you.`))
+                              blockContact(activeContact);
+                          }}
+                          className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-red-400 hover:bg-white/5"
+                        >
+                          <span>🚫</span> Block @{activeContact}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </header>
 
@@ -799,6 +922,13 @@ export function ChatShell({
                 stealth ? "bg-ide-bg py-2" : "px-3 py-4 sm:px-5"
               }`}
             >
+              {loadingOlder && !stealth && (
+                <div className="mb-2 flex justify-center">
+                  <span className="rounded-full bg-brand-surface2/80 px-3 py-1 text-[11px] text-brand-muted">
+                    loading older…
+                  </span>
+                </div>
+              )}
               {connecting && messages.length === 0 && !error && !stealth && (
                 <div className="space-y-3">
                   {[0, 1, 2, 3, 4].map((i) => (
