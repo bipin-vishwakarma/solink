@@ -173,7 +173,7 @@ export function Composer({
         <div className="flex items-end gap-1">
           <button
             onClick={() => setShowEmoji((v) => !v)}
-            className={`grid h-11 w-9 shrink-0 place-items-center rounded-full text-xl transition ${
+            className={`pressable grid h-11 w-9 shrink-0 place-items-center rounded-full text-xl transition ${
               showEmoji ? "text-brand-accent" : "text-brand-muted hover:text-brand-text"
             }`}
             aria-label="Emoji"
@@ -206,7 +206,7 @@ export function Composer({
               )}
               <button
                 onClick={() => setShowAttachMenu((v) => !v)}
-                className={`grid h-11 w-9 shrink-0 place-items-center rounded-full transition ${
+                className={`pressable grid h-11 w-9 shrink-0 place-items-center rounded-full transition ${
                   showAttachMenu ? "text-brand-accent" : "text-brand-muted hover:text-brand-text"
                 }`}
                 aria-label="Attach"

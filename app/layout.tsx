@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { ViewportManager } from "@/components/ViewportManager";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://solink-omega.vercel.app"),
@@ -38,6 +39,9 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   viewportFit: "cover",
+  // Android: shrink the layout when the on-screen keyboard opens so the
+  // composer reflows above it (iOS is handled by ViewportManager).
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({
@@ -54,6 +58,7 @@ export default function RootLayout({
               "try{if(localStorage.getItem('solink:theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}",
           }}
         />
+        <ViewportManager />
         {children}
       </body>
     </html>

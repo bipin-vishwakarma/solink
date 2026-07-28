@@ -383,6 +383,30 @@ export function ChatShell({
     }
   }, [messages.length, peerTyping]);
 
+  // Lock the page while the chat app is mounted so iOS can't rubber-band or
+  // scroll-jump when an input is focused. Scoped to a body class so other
+  // routes stay scrollable.
+  useEffect(() => {
+    document.body.classList.add("chat-locked");
+    return () => document.body.classList.remove("chat-locked");
+  }, []);
+
+  // When the on-screen keyboard opens/closes the visual viewport resizes; if the
+  // user was pinned to the latest message, keep them there (no smooth-scroll —
+  // it should track the keyboard instantly).
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      if (atBottomRef.current) {
+        const el = scrollRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      }
+    };
+    vv.addEventListener("resize", onResize);
+    return () => vv.removeEventListener("resize", onResize);
+  }, []);
+
   // Complete a pending image forward once the target chat's transport is ready.
   useEffect(() => {
     if (!pendingForward) return;
@@ -404,6 +428,14 @@ export function ChatShell({
       transportRef.current.markRead(unread);
     }
   }, [messagesByContact, activeContact]);
+
+  // Opening a chat always starts pinned to the latest message.
+  useEffect(() => {
+    if (!activeContact) return;
+    atBottomRef.current = true;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [activeContact]);
 
   function onScroll() {
     const el = scrollRef.current;
@@ -570,7 +602,7 @@ export function ChatShell({
   }
 
   return (
-    <main className="flex h-dvh overflow-hidden">
+    <main className="h-app flex overflow-hidden">
       <Sidebar
         myName={myName}
         myAvatarUrl={myAvatarUrl}
@@ -582,7 +614,10 @@ export function ChatShell({
         className={`md:w-80 md:shrink-0 ${activeContact ? "hidden md:flex" : "flex"}`}
       />
 
-      <section className={`relative min-w-0 flex-1 flex-col ${activeContact ? "flex" : "hidden md:flex"}`}>
+      <section
+        key={activeContact || "none"}
+        className={`chat-enter relative min-w-0 flex-1 flex-col ${activeContact ? "flex" : "hidden md:flex"}`}
+      >
         {!activeContact ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
             <div className="mb-4 text-5xl">🔗</div>
@@ -596,7 +631,7 @@ export function ChatShell({
             <header className="flex items-center gap-3 border-b border-brand-border bg-brand-surface/70 px-3 pb-2.5 pt-[calc(0.625rem+var(--safe-top))] backdrop-blur sm:px-4">
               <button
                 onClick={() => setActiveContact(null)}
-                className="rounded-lg p-1.5 text-brand-muted hover:bg-white/5 md:hidden"
+                className="pressable rounded-lg p-1.5 text-brand-muted hover:bg-white/5 md:hidden"
                 aria-label="Back"
               >
                 ←
@@ -632,7 +667,7 @@ export function ChatShell({
                     setSearchOpen((v) => !v);
                     setSearchQuery("");
                   }}
-                  className={`rounded-lg px-2 py-1 text-xs font-medium transition ${
+                  className={`pressable rounded-lg px-2 py-1 text-xs font-medium transition ${
                     searchOpen ? "bg-brand-accent/20 text-brand-accent" : "text-brand-faint hover:bg-white/5"
                   }`}
                   title="Search messages"
@@ -641,7 +676,7 @@ export function ChatShell({
                 </button>
                 <button
                   onClick={toggleNotify}
-                  className={`rounded-lg px-2 py-1 text-xs font-medium transition ${
+                  className={`pressable rounded-lg px-2 py-1 text-xs font-medium transition ${
                     notifyOn ? "bg-brand-accent/20 text-brand-accent" : "text-brand-faint hover:bg-white/5"
                   }`}
                   title={notifyOn ? "Notifications on" : "Enable notifications"}
@@ -650,7 +685,7 @@ export function ChatShell({
                 </button>
                 <button
                   onClick={() => setShowWire((v) => !v)}
-                  className={`rounded-lg px-2 py-1 text-xs font-medium transition ${
+                  className={`pressable rounded-lg px-2 py-1 text-xs font-medium transition ${
                     showWire ? "bg-white/5 text-brand-muted" : "text-brand-faint hover:bg-white/5"
                   }`}
                   title="Toggle the encrypted-wire preview"
@@ -659,7 +694,7 @@ export function ChatShell({
                 </button>
                 <button
                   onClick={() => setStealth((v) => !v)}
-                  className={`rounded-lg px-2 py-1 text-xs font-medium transition ${
+                  className={`pressable rounded-lg px-2 py-1 text-xs font-medium transition ${
                     stealth ? "bg-brand-accent text-white" : "bg-white/5 text-brand-muted hover:bg-white/10"
                   }`}
                   title="Stealth (Ctrl+Shift+,)"
@@ -668,7 +703,7 @@ export function ChatShell({
                 </button>
                 <button
                   onClick={() => setIde(true)}
-                  className="rounded-lg bg-white/5 px-2 py-1 text-xs font-medium text-brand-muted transition hover:bg-white/10"
+                  className="pressable rounded-lg bg-white/5 px-2 py-1 text-xs font-medium text-brand-muted transition hover:bg-white/10"
                   title="Panic → IDE (Ctrl+Shift+.)"
                 >
                   🚨

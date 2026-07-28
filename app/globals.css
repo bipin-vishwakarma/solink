@@ -6,6 +6,11 @@
   color-scheme: dark;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Live viewport height (set by ViewportManager from visualViewport so the
+     chat shell shrinks above the on-screen keyboard). Falls back to 100dvh
+     before JS runs. --kb is the on-screen keyboard height when known. */
+  --app-height: 100dvh;
+  --kb: 0px;
 
   /* Brand palette (dark, default) as R G B triplets for Tailwind's rgb(var()) */
   --brand-bg: 23 21 15;
@@ -72,6 +77,20 @@ body {
 .pt-safe { padding-top: var(--safe-top); }
 .pb-safe { padding-bottom: var(--safe-bottom); }
 
+/* The chat shell binds its height to the live visual viewport so the composer
+   always sits just above the keyboard instead of behind it. */
+.h-app { height: var(--app-height); }
+
+/* While the chat view is mounted, pin the page so iOS can't rubber-band or
+   scroll-jump the whole app when an input is focused. Scoped via a body class
+   so scrolling routes (profile/settings) stay scrollable. */
+body.chat-locked {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
 /* ---------- animations ---------- */
 
 @keyframes blink {
@@ -121,6 +140,20 @@ body {
 }
 .fade-in {
   animation: fade-in 0.2s ease-out;
+}
+
+/* Chat pane pushes in from the right — mobile only, where it reads as a
+   navigation transition. On tablet/desktop the pane is always visible, so no
+   animation. */
+@keyframes chat-in {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: none; }
+}
+@media (max-width: 767px) {
+  .chat-enter {
+    animation: chat-in 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform, opacity;
+  }
 }
 
 @keyframes typing-bounce {
