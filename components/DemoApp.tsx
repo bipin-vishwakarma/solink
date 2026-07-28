@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { LocalTransport } from "@/lib/localTransport";
 import type { TransportEvents } from "@/lib/types";
 import { ChatShell, type TransportFactory } from "./ChatShell";
+import { LogoMark } from "./Logo";
 
 function roomFor(a: string, b: string): string {
   return "dm:" + [a.toLowerCase(), b.toLowerCase()].sort().join("~");
@@ -35,9 +36,9 @@ export function DemoApp() {
     return (
       <main className="flex min-h-dvh items-center justify-center p-6">
         <div className="w-full max-w-sm rounded-3xl border border-brand-border bg-brand-surface/80 p-7 shadow-2xl backdrop-blur">
-          <div className="mb-4 flex items-center gap-2 font-mono text-xs text-brand-accent">
-            <span className="text-lg">🔗</span> solink
-            <span className="ml-auto rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-brand-faint">
+          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-brand-text">
+            <LogoMark size={22} /> Solink
+            <span className="ml-auto rounded-full bg-white/5 px-2 py-0.5 font-mono text-[10px] font-normal text-brand-faint">
               demo mode
             </span>
           </div>

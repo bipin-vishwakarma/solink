@@ -66,6 +66,8 @@ export function ChatShell({
   makeTransport,
   makeInboxSubscription,
   validateUsername,
+  lookupUser,
+  fetchProfiles,
   makeGroupTransport,
   listGroups,
   createGroup,
@@ -76,6 +78,8 @@ export function ChatShell({
   makeTransport: TransportFactory;
   makeInboxSubscription?: (onActivity: (a: InboxActivity) => void) => () => void;
   validateUsername?: (username: string) => Promise<boolean>;
+  lookupUser?: (username: string) => Promise<{ username: string; avatarUrl: string | null } | null>;
+  fetchProfiles?: (usernames: string[]) => Promise<{ username: string; avatarUrl: string | null }[]>;
   makeGroupTransport?: (groupId: string, events: GroupEvents) => GroupTransport;
   listGroups?: () => Promise<{ id: string; name: string }[]>;
   createGroup?: (name: string, memberUsernames: string[]) => Promise<{ id: string; name: string } | null>;
@@ -181,6 +185,31 @@ export function ChatShell({
     },
     [contactsKey]
   );
+
+  // Backfill avatars for contacts that don't have one yet (e.g. loaded from
+  // localStorage, which only stores usernames). One batched query.
+  const avatarRequestedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!fetchProfiles) return;
+    const need = contacts
+      .filter((c) => c.avatarUrl === undefined && !avatarRequestedRef.current.has(c.username.toLowerCase()))
+      .map((c) => c.username);
+    if (!need.length) return;
+    const needSet = new Set(need.map((u) => u.toLowerCase()));
+    need.forEach((u) => avatarRequestedRef.current.add(u.toLowerCase()));
+    fetchProfiles(need)
+      .then((profs) => {
+        const map = new Map(profs.map((p) => [p.username.toLowerCase(), p.avatarUrl]));
+        setContacts((prev) =>
+          prev.map((c) =>
+            needSet.has(c.username.toLowerCase())
+              ? { ...c, avatarUrl: map.get(c.username.toLowerCase()) ?? null }
+              : c
+          )
+        );
+      })
+      .catch(() => {});
+  }, [contacts, fetchProfiles]);
 
   // Blocked usernames (lowercase), persisted per identity. Blocked people can't
   // start chats with you and their inbox pings are ignored.
@@ -321,6 +350,16 @@ export function ChatShell({
         setSimulated(sim);
         setPeerAvatar(avatarUrl ?? null);
         setConnecting(false);
+        // Keep the sidebar row's avatar in sync with what the transport fetched.
+        if (avatarUrl !== undefined) {
+          setContacts((prev) =>
+            prev.map((c) =>
+              c.username.toLowerCase() === activeContact.toLowerCase()
+                ? { ...c, avatarUrl: avatarUrl ?? null }
+                : c
+            )
+          );
+        }
       },
       onMessage: (raw, payload, mine) => {
         const { text, replyTo, attachment } = decodeMessage(raw);
@@ -843,18 +882,31 @@ export function ChatShell({
       setActiveContact(existing.username);
       return null;
     }
-    // in cloud mode, only allow adding usernames that actually exist
-    if (validateUsername) {
+    // Resolve the canonical username + avatar (cloud). lookupUser also gates on
+    // existence; fall back to validateUsername, then to the raw input (demo).
+    let canonical = clean;
+    let avatarUrl: string | null | undefined = undefined;
+    if (lookupUser) {
+      const found = await lookupUser(clean).catch(() => null);
+      if (!found) return `No user named @${clean}`;
+      canonical = found.username;
+      avatarUrl = found.avatarUrl;
+      const dup = contacts.find((c) => c.username.toLowerCase() === canonical.toLowerCase());
+      if (dup) {
+        setActiveContact(dup.username);
+        return null;
+      }
+    } else if (validateUsername) {
       const ok = await validateUsername(clean).catch(() => false);
       if (!ok) return `No user named @${clean}`;
     }
     setContacts((prev) => {
-      if (prev.some((c) => c.username.toLowerCase() === clean.toLowerCase())) return prev;
-      const next = [{ username: clean, lastActivity: Date.now() }, ...prev];
+      if (prev.some((c) => c.username.toLowerCase() === canonical.toLowerCase())) return prev;
+      const next = [{ username: canonical, avatarUrl, lastActivity: Date.now() }, ...prev];
       persistContacts(next);
       return next;
     });
-    setActiveContact(clean);
+    setActiveContact(canonical);
     return null;
   }
 
@@ -873,6 +925,7 @@ export function ChatShell({
         activeContact={activeContact}
         onSelect={setActiveContact}
         onConnect={connectTo}
+        onLookup={lookupUser}
         onSignOut={onSignOut}
         groups={groups}
         activeGroupId={activeGroupId}

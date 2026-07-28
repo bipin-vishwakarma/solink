@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Avatar } from "./Avatar";
 
@@ -10,6 +10,7 @@ export interface Contact {
   online?: boolean;
   unread?: number;
   lastActivity?: number; // ms timestamp of the latest message, for recent-on-top sorting
+  avatarUrl?: string | null; // the peer's profile photo, if any
 }
 
 export function Sidebar({
@@ -19,6 +20,7 @@ export function Sidebar({
   activeContact,
   onSelect,
   onConnect,
+  onLookup,
   onSignOut,
   groups = [],
   activeGroupId = null,
@@ -32,6 +34,7 @@ export function Sidebar({
   activeContact: string | null;
   onSelect: (username: string) => void;
   onConnect: (username: string) => Promise<string | null>;
+  onLookup?: (username: string) => Promise<{ username: string; avatarUrl: string | null } | null>;
   onSignOut?: () => void;
   groups?: { id: string; name: string }[];
   activeGroupId?: string | null;
@@ -42,6 +45,10 @@ export function Sidebar({
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  // Live search preview of the looked-up user (avatar + canonical name).
+  const [preview, setPreview] = useState<
+    { status: "loading" } | { status: "found"; username: string; avatarUrl: string | null } | { status: "none" } | null
+  >(null);
 
   const trimmed = query.trim();
   const filtered = trimmed
@@ -50,6 +57,25 @@ export function Sidebar({
   const exactExists = contacts.some(
     (c) => c.username.toLowerCase() === trimmed.toLowerCase()
   );
+
+  // Debounced lookup so the search card can show the real user's avatar.
+  useEffect(() => {
+    if (!onLookup || !trimmed || exactExists) {
+      setPreview(null);
+      return;
+    }
+    let cancelled = false;
+    setPreview({ status: "loading" });
+    const t = setTimeout(async () => {
+      const found = await onLookup(trimmed).catch(() => null);
+      if (cancelled) return;
+      setPreview(found ? { status: "found", username: found.username, avatarUrl: found.avatarUrl } : { status: "none" });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [trimmed, exactExists, onLookup]);
 
   async function connect() {
     if (!trimmed || connecting) return;
@@ -112,20 +138,50 @@ export function Sidebar({
         </div>
         {error && <div className="mt-2 px-1 text-xs text-red-400">{error}</div>}
         {trimmed && !exactExists && !error && (
-          <button
-            onClick={connect}
-            disabled={connecting}
-            className="mt-2 flex w-full items-center gap-3 rounded-xl border border-brand-accent/40 bg-brand-accentSoft/60 px-3 py-2 text-left transition hover:bg-brand-accentSoft disabled:opacity-60"
-          >
-            <Avatar name={trimmed} size={34} />
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium text-brand-text">@{trimmed}</div>
-              <div className="text-[11px] text-brand-accent">
-                {connecting ? "checking…" : "tap to start an encrypted chat"}
+          // With onLookup (cloud) we show the real user's avatar + a not-found
+          // state. Without it (demo) we fall back to a plain connect suggestion.
+          onLookup ? (
+            preview?.status === "found" ? (
+              <button
+                onClick={connect}
+                disabled={connecting}
+                className="mt-2 flex w-full items-center gap-3 rounded-xl border border-brand-accent/40 bg-brand-accentSoft/60 px-3 py-2 text-left transition hover:bg-brand-accentSoft disabled:opacity-60"
+              >
+                <Avatar name={preview.username} size={34} src={preview.avatarUrl} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-brand-text">@{preview.username}</div>
+                  <div className="text-[11px] text-brand-accent">
+                    {connecting ? "connecting…" : "tap to start an encrypted chat"}
+                  </div>
+                </div>
+                <span className="text-brand-accent">→</span>
+              </button>
+            ) : preview?.status === "loading" ? (
+              <div className="mt-2 flex items-center gap-3 rounded-xl border border-brand-border bg-black/10 px-3 py-2">
+                <div className="skeleton h-[34px] w-[34px] rounded-full" />
+                <div className="text-[11px] text-brand-muted">searching…</div>
               </div>
-            </div>
-            <span className="text-brand-accent">→</span>
-          </button>
+            ) : preview?.status === "none" ? (
+              <div className="mt-2 rounded-xl border border-brand-border bg-black/10 px-3 py-2 text-xs text-brand-faint">
+                No user named <span className="text-brand-muted">@{trimmed}</span>
+              </div>
+            ) : null
+          ) : (
+            <button
+              onClick={connect}
+              disabled={connecting}
+              className="mt-2 flex w-full items-center gap-3 rounded-xl border border-brand-accent/40 bg-brand-accentSoft/60 px-3 py-2 text-left transition hover:bg-brand-accentSoft disabled:opacity-60"
+            >
+              <Avatar name={trimmed} size={34} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium text-brand-text">@{trimmed}</div>
+                <div className="text-[11px] text-brand-accent">
+                  {connecting ? "checking…" : "tap to start an encrypted chat"}
+                </div>
+              </div>
+              <span className="text-brand-accent">→</span>
+            </button>
+          )
         )}
       </div>
 
@@ -179,7 +235,7 @@ export function Sidebar({
                 active ? "bg-brand-accentSoft" : "hover:bg-white/5 active:bg-white/10"
               }`}
             >
-              <Avatar name={c.username} size={40} online={c.online} />
+              <Avatar name={c.username} size={40} online={c.online} src={c.avatarUrl} />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-brand-text">{c.username}</div>
                 <div className={`truncate text-xs ${c.unread ? "font-medium text-brand-text" : "text-brand-muted"}`}>

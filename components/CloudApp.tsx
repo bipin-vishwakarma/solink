@@ -8,6 +8,7 @@ import { SupabaseTransport, type CloudContext } from "@/lib/supabaseTransport";
 import { GroupTransport, type GroupContext, type GroupEvents } from "@/lib/groupTransport";
 import type { InboxActivity } from "@/lib/types";
 import { ChatShell, type TransportFactory } from "./ChatShell";
+import { LogoMark } from "./Logo";
 
 type Phase = "loading" | "signedout" | "needs-username" | "ready";
 
@@ -15,9 +16,9 @@ function Card({ children }: { children: React.ReactNode }) {
   return (
     <main className="flex min-h-dvh items-center justify-center p-6">
       <div className="w-full max-w-sm rounded-3xl border border-brand-border bg-brand-surface/80 p-7 shadow-2xl backdrop-blur">
-        <div className="mb-4 flex items-center gap-2 font-mono text-xs text-brand-accent">
-          <span className="text-lg">🔗</span> solink
-          <span className="ml-auto rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-brand-faint">
+        <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-brand-text">
+          <LogoMark size={22} /> Solink
+          <span className="ml-auto rounded-full bg-white/5 px-2 py-0.5 font-mono text-[10px] font-normal text-brand-faint">
             cloud
           </span>
         </div>
@@ -193,6 +194,37 @@ export function CloudApp() {
     [sb]
   );
 
+  // Look up a single user (case-insensitive) → canonical username + avatar, or null.
+  const lookupUser = useCallback(
+    async (u: string) => {
+      const { data } = await sb
+        .from("profiles")
+        .select("username, avatar_url")
+        .ilike("username", u)
+        .maybeSingle();
+      return data
+        ? { username: data.username as string, avatarUrl: (data.avatar_url as string | null) ?? null }
+        : null;
+    },
+    [sb]
+  );
+
+  // Batch-fetch avatars for a set of usernames (case-insensitive, one query).
+  // Usernames are validated [a-zA-Z0-9_], so they're safe to inline in the filter.
+  const fetchProfiles = useCallback(
+    async (usernames: string[]) => {
+      const clean = usernames.filter((u) => /^[a-zA-Z0-9_]{1,32}$/.test(u));
+      if (!clean.length) return [];
+      const filter = clean.map((u) => `username.ilike.${u}`).join(",");
+      const { data } = await sb.from("profiles").select("username, avatar_url").or(filter);
+      return ((data as { username: string; avatar_url: string | null }[] | null) || []).map((p) => ({
+        username: p.username,
+        avatarUrl: p.avatar_url ?? null,
+      }));
+    },
+    [sb]
+  );
+
   function signIn() {
     void sb.auth.signInWithOAuth({
       provider: "google",
@@ -310,6 +342,8 @@ export function CloudApp() {
       makeTransport={makeTransport}
       makeInboxSubscription={makeInboxSubscription}
       validateUsername={validateUsername}
+      lookupUser={lookupUser}
+      fetchProfiles={fetchProfiles}
       makeGroupTransport={makeGroupTransport}
       listGroups={listGroups}
       createGroup={createGroup}
