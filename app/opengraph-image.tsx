@@ -1,6 +1,5 @@
 import { ImageResponse } from "next/og";
 
-export const runtime = "edge";
 export const alt = "Solink — end-to-end encrypted chat, disguised as code";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
@@ -40,10 +39,19 @@ export default function OGImage() {
           </div>
           <div style={{ color: "#efe9df", fontSize: 44, fontWeight: 700 }}>Solink</div>
         </div>
-        <div style={{ color: "#efe9df", fontSize: 76, fontWeight: 800, lineHeight: 1.05, maxWidth: 900 }}>
-          Encrypted chat,
-          <br />
-          disguised as code.
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            color: "#efe9df",
+            fontSize: 76,
+            fontWeight: 800,
+            lineHeight: 1.05,
+            maxWidth: 900,
+          }}
+        >
+          <span>Encrypted chat,</span>
+          <span>disguised as code.</span>
         </div>
         <div style={{ color: "#a39a8b", fontSize: 34, marginTop: 32 }}>
           End-to-end encrypted · tap-to-reveal · panic mode

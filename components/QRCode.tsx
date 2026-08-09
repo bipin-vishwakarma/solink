@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type JSX } from "react";
 
 /**
  * QRCode.tsx — self-contained QR code generator + SVG renderer.

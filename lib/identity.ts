@@ -88,5 +88,7 @@ export async function signOut() {
   } else {
     localStorage.removeItem("solink:name");
   }
+  // Reset all in-memory transports and identity state after sign-out.
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
   window.location.href = "/";
 }

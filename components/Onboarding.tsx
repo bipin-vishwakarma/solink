@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type JSX } from "react";
 import { LogoMark, LogoWordmark } from "@/components/Logo";
 
 type Slide = {
