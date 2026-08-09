@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Avatar } from "./Avatar";
 
@@ -21,7 +21,6 @@ export function Sidebar({
   onSelect,
   onConnect,
   onLookup,
-  onSignOut,
   groups = [],
   activeGroupId = null,
   onSelectGroup,

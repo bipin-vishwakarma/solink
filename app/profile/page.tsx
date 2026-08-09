@@ -82,7 +82,11 @@ export default function ProfilePage() {
       const pub = await exportPublicKey(kp.publicKey);
       await supabase.from("profiles").update({ public_key: pub }).eq("id", id.userId);
       setKbMsg({ kind: "ok", text: "Key restored. Reloading…" });
-      setTimeout(() => window.location.assign("/"), 900);
+      setTimeout(() => {
+        // A full reload is required after replacing IndexedDB key material.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+        window.location.assign("/");
+      }, 900);
     } catch {
       setKbMsg({ kind: "err", text: "Wrong passphrase, or the backup is unreadable." });
     } finally {
@@ -156,7 +160,7 @@ export default function ProfilePage() {
       <div className="mt-4 overflow-hidden rounded-2xl border border-brand-border bg-brand-surface/70">
         <div className="border-b border-brand-border px-4 py-3">
           <div className="text-xs font-medium uppercase tracking-wide text-brand-faint">
-            This device's encryption key
+            This device&apos;s encryption key
           </div>
           <div className="mt-1 font-mono text-sm tracking-wider text-brand-accent">
             {id.publicKeyFingerprint || "…"}

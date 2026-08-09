@@ -2,7 +2,7 @@
 // Handles push notifications and notification clicks.
 
 // Activate immediately on install.
-self.addEventListener('install', (event) => {
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
@@ -18,7 +18,7 @@ self.addEventListener('push', (event) => {
   let payload = {};
   try {
     payload = event.data ? event.data.json() : {};
-  } catch (err) {
+  } catch {
     payload = {};
   }
 
