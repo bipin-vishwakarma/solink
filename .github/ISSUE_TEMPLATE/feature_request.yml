@@ -1,0 +1,44 @@
+name: Feature request
+description: Propose an improvement with a clear user benefit.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem should Solink solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed experience
+      description: Describe the user flow, not only the implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: security
+    attributes:
+      label: Privacy and security impact
+      description: Could this expose metadata, plaintext, identity, keys, or notification content?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: This request does not contain private data or secrets.
+          required: true
+        - label: I searched existing issues and the roadmap.
+          required: true
