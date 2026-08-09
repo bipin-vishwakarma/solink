@@ -6,6 +6,7 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   username text unique not null,
   public_key text not null,
+  avatar_url text,
   created_at timestamptz not null default now()
 );
 -- Cross-device key backup: the device private key wrapped under a user
