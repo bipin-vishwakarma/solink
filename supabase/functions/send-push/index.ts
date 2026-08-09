@@ -16,6 +16,7 @@
 //   VAPID_PUBLIC_KEY   — VAPID public key
 //   VAPID_PRIVATE_KEY  — VAPID private key
 //   VAPID_SUBJECT      — e.g. mailto:you@example.com
+//   PUSH_WEBHOOK_SECRET       — random secret shared only with the DB trigger
 //   SUPABASE_URL              — provided automatically by the platform
 //   SUPABASE_SERVICE_ROLE_KEY — provided automatically by the platform
 // ============================================================================
@@ -23,56 +24,73 @@
 import webpush from "npm:web-push@3.6.7";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-// --- CORS ------------------------------------------------------------------
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
   });
 
 // --- VAPID setup -----------------------------------------------------------
 const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY");
 const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY");
 const VAPID_SUBJECT = Deno.env.get("VAPID_SUBJECT") ?? "mailto:admin@example.com";
+const PUSH_WEBHOOK_SECRET = Deno.env.get("PUSH_WEBHOOK_SECRET");
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 }
 
+async function secretsMatch(provided: string, expected: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const [providedHash, expectedHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(provided)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+  ]);
+  const a = new Uint8Array(providedHash);
+  const b = new Uint8Array(expectedHash);
+  let difference = 0;
+  for (let i = 0; i < a.length; i++) difference |= a[i] ^ b[i];
+  return difference === 0;
+}
+
 // --- Handler ---------------------------------------------------------------
 Deno.serve(async (req) => {
-  // Preflight
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
-
   if (req.method !== "POST") {
     return json({ error: "Method not allowed" }, 405);
   }
 
-  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
-    return json({ error: "VAPID keys are not configured" }, 500);
+  if (
+    !VAPID_PUBLIC_KEY ||
+    !VAPID_PRIVATE_KEY ||
+    !PUSH_WEBHOOK_SECRET ||
+    !SUPABASE_URL ||
+    !SUPABASE_SERVICE_ROLE_KEY
+  ) {
+    return json({ error: "Function secrets are not configured" }, 500);
+  }
+
+  const providedSecret = req.headers.get("x-solink-push-secret");
+  if (!providedSecret || !(await secretsMatch(providedSecret, PUSH_WEBHOOK_SECRET))) {
+    return json({ error: "Unauthorized" }, 401);
   }
 
   try {
     const { recipientId, disguised } = await req.json();
 
-    if (!recipientId || typeof recipientId !== "string") {
-      return json({ error: "recipientId is required" }, 400);
+    if (
+      typeof recipientId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(recipientId)
+    ) {
+      return json({ error: "A valid recipientId is required" }, 400);
     }
 
     // Service-role client: this function runs server-side and needs to read
     // any user's push subscriptions.
     const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY,
     );
 
     const { data: subs, error } = await supabase
