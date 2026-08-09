@@ -65,15 +65,16 @@ export async function subscribeToPush(
       });
     }
 
-    // Persist the subscription in Supabase (best-effort; ignore duplicates).
+    // Persist the subscription in Supabase. Wave 8 makes (user, endpoint)
+    // unique, so enabling push again refreshes the existing row.
     if (hasSupabase && supabase) {
-      try {
-        await supabase
-          .from("push_subscriptions")
-          .insert({ user_id: userId, subscription: sub.toJSON() });
-      } catch {
-        // Duplicate/insert errors are non-fatal — the subscription still works.
-      }
+      const { error } = await supabase
+        .from("push_subscriptions")
+        .upsert(
+          { user_id: userId, subscription: sub.toJSON() },
+          { onConflict: "user_id,endpoint" }
+        );
+      if (error) return { ok: false, reason: "subscription-save-failed" };
     }
 
     return { ok: true };
@@ -97,7 +98,7 @@ export async function unsubscribeFromPush(): Promise<void> {
     if (sub) {
       await sub.unsubscribe();
     }
-  } catch (err) {
+  } catch {
     // Ignore — unsubscription is best-effort.
   }
 }

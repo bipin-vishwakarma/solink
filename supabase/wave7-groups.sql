@@ -31,10 +31,22 @@ create index if not exists group_messages_group_idx on public.group_messages (gr
 -- SECURITY DEFINER so the membership check inside group_members policies doesn't
 -- recurse through RLS.
 create or replace function public.is_group_member(gid uuid) returns boolean
-  language sql security definer stable as $$
+  language sql security definer stable
+  set search_path = public, pg_temp as $$
     select exists(
       select 1 from public.group_members gm
       where gm.group_id = gid and gm.user_id = auth.uid()
+    );
+  $$;
+
+-- The creator must be able to seed their own membership immediately after
+-- inserting the group, before is_group_member() can return true.
+create or replace function public.is_group_creator(gid uuid) returns boolean
+  language sql security definer stable
+  set search_path = public, pg_temp as $$
+    select exists(
+      select 1 from public.groups g
+      where g.id = gid and g.created_by = auth.uid()
     );
   $$;
 
@@ -46,9 +58,14 @@ create policy "groups select" on public.groups for select using (public.is_group
 create policy "groups insert" on public.groups for insert with check (created_by = auth.uid());
 
 create policy "gm select" on public.group_members for select using (public.is_group_member(group_id));
--- You can add yourself (group creation seeds the creator) or add others once you're a member.
+-- Existing members can add people. A non-member may only seed their own
+-- membership when they are the recorded creator; knowing a group UUID is not
+-- enough to self-join.
 create policy "gm insert" on public.group_members
-  for insert with check (public.is_group_member(group_id) or user_id = auth.uid());
+  for insert with check (
+    public.is_group_member(group_id)
+    or (user_id = auth.uid() and public.is_group_creator(group_id))
+  );
 
 create policy "gmsg select" on public.group_messages for select using (public.is_group_member(group_id));
 create policy "gmsg insert" on public.group_messages
