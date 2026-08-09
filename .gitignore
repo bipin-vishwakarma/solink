@@ -15,3 +15,7 @@ next-env.d.ts
 .vercel
 
 .vapid.env
+
+# Local Supabase CLI state and release-only database dumps
+/supabase/.temp/
+/.release-backups/

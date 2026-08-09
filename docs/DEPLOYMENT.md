@@ -40,6 +40,17 @@ Apply each file once, in order, to a new project:
 Then configure Google OAuth and allowed redirect URLs as described in
 `SETUP-CLOUD.md`.
 
+For an existing linked project, committed files under `supabase/migrations/`
+are the production change record. Preview and apply only pending migrations:
+
+```bash
+supabase migration list --linked
+supabase db push --linked --dry-run
+supabase db push --linked
+```
+
+Never use `supabase db reset --linked` on production.
+
 ## Push delivery setup
 
 1. Generate VAPID keys and a separate random 32-byte webhook secret.
@@ -53,7 +64,9 @@ Then configure Google OAuth and allowed redirect URLs as described in
    supabase functions deploy send-push --no-verify-jwt
    ```
 
-5. Apply `supabase/wave6-trigger.sql`.
+5. Apply the pending authenticated push-trigger migration with
+   `supabase db push --linked --dry-run`, followed by
+   `supabase db push --linked`.
 
 Gateway JWT verification is deliberately disabled for this server-to-server
 trigger. The Edge Function itself must return HTTP 401 when the
@@ -66,9 +79,9 @@ trigger. The Edge Function itself must return HTTP 401 when the
 3. Run `npm audit` and test Cloud mode against staging.
 4. Apply backward-compatible SQL migrations to staging.
 5. Deploy and test Edge Functions in staging.
-6. Merge only after the verification checklist passes.
-7. Apply required additive production migrations.
-8. Deploy the production Edge Function when its contract changes.
+6. Apply required backward-compatible production migrations.
+7. Deploy and verify the production Edge Function when its contract changes.
+8. Merge only after the backend verification checklist passes.
 9. Let Vercel deploy the reviewed `main` commit.
 10. Record commit SHA, migration files, operator, and verification result.
 

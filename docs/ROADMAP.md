@@ -26,8 +26,8 @@ acceptance criteria.
 
 ## P0 — Security and recoverability
 
-- [ ] Stage and apply Wave 8 authorization hardening.
-- [ ] Deploy and verify authenticated push delivery.
+- [x] Stage and apply Wave 8 authorization hardening.
+- [x] Deploy and verify authenticated push delivery.
 - [ ] Add automated RLS policy tests.
 - [ ] Replace automatic public-key overwrite with an explicit device enrollment
       and recovery flow.
@@ -35,7 +35,7 @@ acceptance criteria.
 - [ ] Enforce blocking at the database authorization layer.
 - [ ] Restrict attachment object access to conversation members.
 - [ ] Add CSP, Referrer Policy, MIME sniffing protection, and Permissions Policy.
-- [ ] Enable GitHub private vulnerability reporting and dependency alerts.
+- [x] Enable GitHub private vulnerability reporting and dependency alerts.
 
 ## P1 — Messaging reliability
 
@@ -62,7 +62,7 @@ acceptance criteria.
 
 - [ ] Split `ChatShell` into conversation, transport, notification, attachment,
       and presentation modules behind tests.
-- [ ] Replace raw manual SQL execution with versioned Supabase migrations.
+- [x] Replace raw manual SQL execution with versioned Supabase migrations.
 - [ ] Design a real multi-device key protocol.
 - [ ] Evaluate a ratcheting protocol for forward secrecy and post-compromise
       security.
