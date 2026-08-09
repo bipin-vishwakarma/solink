@@ -59,11 +59,13 @@ alter table public.messages enable row level security;
 
 -- Profiles: anyone signed in can look up usernames/public keys; you edit only your own.
 create policy "profiles readable" on public.profiles
-  for select using (auth.role() = 'authenticated');
+  for select to authenticated using (true);
 create policy "profiles self-insert" on public.profiles
-  for insert with check (auth.uid() = id);
+  for insert to authenticated with check (auth.uid() = id);
 create policy "profiles self-update" on public.profiles
-  for update using (auth.uid() = id);
+  for update to authenticated
+  using (auth.uid() = id)
+  with check (auth.uid() = id);
 
 -- Helper: is the current user a member of a conversation?
 create or replace function public.is_member(conv uuid)
