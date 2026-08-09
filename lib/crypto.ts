@@ -1,8 +1,9 @@
 // Real end-to-end encryption primitives built on the native Web Crypto API.
 //
 // Scheme (same shape as Signal/WhatsApp's core idea, simplified for a 1-on-1 MVP):
-//   1. Each device owns an ECDH P-256 key pair. The private key never leaves the device
-//      (kept in IndexedDB, non-exportable). The public key is shared freely.
+//   1. Each device owns an ECDH P-256 key pair. The private key stays in IndexedDB
+//      during normal use and is extractable only for passphrase-wrapped backup.
+//      The public key is shared freely.
 //   2. Two peers derive an identical AES-GCM key from (myPrivate + theirPublic) via ECDH.
 //   3. Messages are encrypted with AES-GCM + a fresh random IV. Only {ciphertext, iv}
 //      ever crosses the wire — the relay/server/database can never read plaintext.
@@ -68,8 +69,9 @@ function idbSet(key: string, value: unknown): Promise<void> {
 
 /**
  * Returns this device's ECDH key pair, generating and persisting one on first use.
- * CryptoKey objects are structured-cloneable, so IndexedDB stores them directly —
- * the raw private key material is never exposed to JS.
+ * CryptoKey objects are structured-cloneable, so IndexedDB stores them directly.
+ * The pair is extractable because backupKeyPair() must export the private JWK;
+ * ordinary messaging never exports it.
  */
 export async function getOrCreateKeyPair(): Promise<CryptoKeyPair> {
   const existing = await idbGet<CryptoKeyPair>(MY_KEYPAIR_ID);
