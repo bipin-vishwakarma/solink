@@ -6,6 +6,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   importPublicKey,
+  exportPublicKey,
   deriveSharedKey,
   encryptMessage,
   decryptMessage,
@@ -54,6 +55,7 @@ export class SupabaseTransport implements ChatTransport {
   private msgIds = new Set<string>(); // message ids in this conversation (for reaction filtering)
   private oldestCreatedAt: string | null = null; // paging cursor for "load older"
   private historyExhausted = false; // no more older messages to load
+  private keyMismatchReported = false;
 
   constructor(
     private peerUsername: string,
@@ -266,20 +268,49 @@ export class SupabaseTransport implements ChatTransport {
     }
   }
 
-  /** Re-fetch the peer's current public key and re-derive the shared key. */
-  private async reDeriveKey(): Promise<boolean> {
-    if (!this.peer) return false;
-    const { data } = await this.sb
+  /** Fetch the peer's current public key and derive the key used for new sends. */
+  private async refreshPeerKey(): Promise<CryptoKey | null> {
+    if (!this.peer) return null;
+    const { data, error } = await this.sb
       .from("profiles")
       .select("public_key")
       .eq("id", this.peer.id)
       .maybeSingle();
-    if (!data?.public_key) return false;
+    if (error || !data?.public_key) return null;
     try {
       const theirPub = await importPublicKey(data.public_key);
       this.sharedKey = await deriveSharedKey(this.ctx.keyPair.privateKey, theirPub);
       this.peer.public_key = data.public_key;
-      return true;
+      return this.sharedKey;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Re-fetch the peer's current public key and re-derive the shared key. */
+  private async reDeriveKey(): Promise<boolean> {
+    return (await this.refreshPeerKey()) !== null;
+  }
+
+  /**
+   * If another browser published a different key for this account, reclaim the
+   * profile for this active device. The failed message cannot be recovered, but
+   * the sender will fetch this repaired key before its next send.
+   */
+  private async repairOwnPublishedKey(): Promise<boolean> {
+    try {
+      const localPublicKey = await exportPublicKey(this.ctx.keyPair.publicKey);
+      const { data, error } = await this.sb
+        .from("profiles")
+        .select("public_key")
+        .eq("id", this.ctx.userId)
+        .maybeSingle();
+      if (error || !data?.public_key || data.public_key === localPublicKey) return false;
+      const { error: updateError } = await this.sb
+        .from("profiles")
+        .update({ public_key: localPublicKey })
+        .eq("id", this.ctx.userId);
+      return !updateError;
     } catch {
       return false;
     }
@@ -296,6 +327,18 @@ export class SupabaseTransport implements ChatTransport {
         try {
           return await decryptMessage(this.sharedKey!, { ciphertext: row.ciphertext, iv: row.iv });
         } catch {
+          // The row may have been encrypted to a different key previously
+          // published by another browser for this account. Repair the profile so
+          // the sender's next pre-send refresh targets this active device.
+          const repaired = await this.repairOwnPublishedKey();
+          if (!this.keyMismatchReported) {
+            this.keyMismatchReported = true;
+            this.events.onError?.(
+              repaired
+                ? "Encryption key mismatch repaired. Ask your contact to resend the last message."
+                : "A message could not be decrypted. Ask your contact to resend it."
+            );
+          }
           return null;
         }
       }
@@ -325,8 +368,20 @@ export class SupabaseTransport implements ChatTransport {
   }
 
   async send(text: string): Promise<WirePayload | null> {
-    if (!this.sharedKey || !this.conversationId) return null;
-    const enc = await encryptMessage(this.sharedKey, text);
+    if (!this.conversationId) return null;
+    // A peer may have opened Solink in another browser since this chat started.
+    // Always encrypt to the public key currently published for the recipient.
+    const currentKey = await this.refreshPeerKey();
+    if (!currentKey) {
+      this.events.onError?.("Could not refresh your contact's encryption key. Try again.");
+      return null;
+    }
+    return this.sendWithKey(text, currentKey);
+  }
+
+  private async sendWithKey(text: string, key: CryptoKey): Promise<WirePayload | null> {
+    if (!this.conversationId) return null;
+    const enc = await encryptMessage(key, text);
 
     const { data, error } = await this.sb
       .from("messages")
@@ -360,8 +415,13 @@ export class SupabaseTransport implements ChatTransport {
     meta: { name: string; mime: string; size: number },
     caption: string
   ): Promise<{ payload: WirePayload; attachment: AttachmentMeta } | null> {
-    if (!this.sharedKey || !this.conversationId) return null;
-    const encrypted = await encryptBytes(this.sharedKey, bytes);
+    if (!this.conversationId) return null;
+    const currentKey = await this.refreshPeerKey();
+    if (!currentKey) {
+      this.events.onError?.("Could not refresh your contact's encryption key. Try again.");
+      return null;
+    }
+    const encrypted = await encryptBytes(currentKey, bytes);
     const path = `${this.conversationId}/${crypto.randomUUID()}`;
     const { error } = await this.sb.storage
       .from(ATTACH_BUCKET)
@@ -371,7 +431,11 @@ export class SupabaseTransport implements ChatTransport {
       return null;
     }
     const attachment: AttachmentMeta = { ...meta, ref: { path } };
-    const payload = await this.send(encodeMessage(caption, undefined, attachment));
+    // Use the same key for the attachment bytes and the message envelope.
+    const payload = await this.sendWithKey(
+      encodeMessage(caption, undefined, attachment),
+      currentKey
+    );
     if (!payload) return null;
     return { payload, attachment };
   }
