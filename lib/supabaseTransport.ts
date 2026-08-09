@@ -297,7 +297,7 @@ export class SupabaseTransport implements ChatTransport {
    * profile for this active device. The failed message cannot be recovered, but
    * the sender will fetch this repaired key before its next send.
    */
-  private async repairOwnPublishedKey(): Promise<boolean> {
+  private async syncOwnPublishedKey(): Promise<"current" | "updated" | "failed"> {
     try {
       const localPublicKey = await exportPublicKey(this.ctx.keyPair.publicKey);
       const { data, error } = await this.sb
@@ -305,14 +305,15 @@ export class SupabaseTransport implements ChatTransport {
         .select("public_key")
         .eq("id", this.ctx.userId)
         .maybeSingle();
-      if (error || !data?.public_key || data.public_key === localPublicKey) return false;
+      if (error || !data?.public_key) return "failed";
+      if (data.public_key === localPublicKey) return "current";
       const { error: updateError } = await this.sb
         .from("profiles")
         .update({ public_key: localPublicKey })
         .eq("id", this.ctx.userId);
-      return !updateError;
+      return updateError ? "failed" : "updated";
     } catch {
-      return false;
+      return "failed";
     }
   }
 
@@ -330,11 +331,11 @@ export class SupabaseTransport implements ChatTransport {
           // The row may have been encrypted to a different key previously
           // published by another browser for this account. Repair the profile so
           // the sender's next pre-send refresh targets this active device.
-          const repaired = await this.repairOwnPublishedKey();
+          const ownKeyStatus = await this.syncOwnPublishedKey();
           if (!this.keyMismatchReported) {
             this.keyMismatchReported = true;
             this.events.onError?.(
-              repaired
+              ownKeyStatus === "updated"
                 ? "Encryption key mismatch repaired. Ask your contact to resend the last message."
                 : "A message could not be decrypted. Ask your contact to resend it."
             );
@@ -369,6 +370,12 @@ export class SupabaseTransport implements ChatTransport {
 
   async send(text: string): Promise<WirePayload | null> {
     if (!this.conversationId) return null;
+    // The recipient derives with our profile's public key. Make sure it matches
+    // this browser's private key before creating any ciphertext.
+    if ((await this.syncOwnPublishedKey()) === "failed") {
+      this.events.onError?.("Could not publish this device's encryption key. Try again.");
+      return null;
+    }
     // A peer may have opened Solink in another browser since this chat started.
     // Always encrypt to the public key currently published for the recipient.
     const currentKey = await this.refreshPeerKey();
@@ -416,6 +423,10 @@ export class SupabaseTransport implements ChatTransport {
     caption: string
   ): Promise<{ payload: WirePayload; attachment: AttachmentMeta } | null> {
     if (!this.conversationId) return null;
+    if ((await this.syncOwnPublishedKey()) === "failed") {
+      this.events.onError?.("Could not publish this device's encryption key. Try again.");
+      return null;
+    }
     const currentKey = await this.refreshPeerKey();
     if (!currentKey) {
       this.events.onError?.("Could not refresh your contact's encryption key. Try again.");

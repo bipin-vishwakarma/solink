@@ -19,12 +19,16 @@ async function createKeyPair(): Promise<CryptoKeyPair> {
 describe("SupabaseTransport", () => {
   it("refreshes a rotated recipient key immediately before sending", async () => {
     const senderKeyPair = await createKeyPair();
+    const staleSenderKeyPair = await createKeyPair();
     const staleRecipientKeyPair = await createKeyPair();
     const currentRecipientKeyPair = await createKeyPair();
+    const senderPublicKey = await exportPublicKey(senderKeyPair.publicKey);
+    const staleSenderPublicKey = await exportPublicKey(staleSenderKeyPair.publicKey);
     const staleRecipientPublicKey = await exportPublicKey(staleRecipientKeyPair.publicKey);
     const currentRecipientPublicKey = await exportPublicKey(currentRecipientKeyPair.publicKey);
 
     let publishedRecipientKey = staleRecipientPublicKey;
+    let publishedSenderKey = staleSenderPublicKey;
     let profileLookupCount = 0;
     let insertedRow: { ciphertext: string; iv: string } | null = null;
 
@@ -64,16 +68,33 @@ describe("SupabaseTransport", () => {
                     },
                   };
                 },
-                eq() {
+                eq(...args: unknown[]) {
+                  const profileId = String(args[1]);
                   return {
                     async maybeSingle() {
                       profileLookupCount++;
                       return {
-                        data: { public_key: publishedRecipientKey },
+                        data: {
+                          public_key:
+                            profileId === "sender-user"
+                              ? publishedSenderKey
+                              : publishedRecipientKey,
+                        },
                         error: null,
                       };
                     },
                   };
+                },
+              };
+            },
+            update(values: unknown) {
+              return {
+                async eq(...args: unknown[]) {
+                  const profileId = String(args[1]);
+                  if (profileId === "sender-user") {
+                    publishedSenderKey = (values as { public_key: string }).public_key;
+                  }
+                  return { error: null };
                 },
               };
             },
@@ -160,7 +181,8 @@ describe("SupabaseTransport", () => {
     transport.destroy();
 
     expect(sent).not.toBeNull();
-    expect(profileLookupCount).toBeGreaterThanOrEqual(2);
+    expect(profileLookupCount).toBeGreaterThanOrEqual(3);
+    expect(publishedSenderKey).toBe(senderPublicKey);
     expect(insertedRow).not.toBeNull();
 
     const currentSharedKey = await deriveSharedKey(
