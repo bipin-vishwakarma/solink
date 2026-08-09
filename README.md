@@ -36,7 +36,8 @@ typing and the demo peer replies.
 ## How the encryption works
 
 1. Each device generates an **ECDH P-256** key pair on first load. The private key stays in
-   the browser's IndexedDB and is never exportable/uploaded.
+   IndexedDB during normal use. It is extractable only so the user can create a
+   passphrase-encrypted cross-device backup.
 2. Two peers exchange **public** keys and each derives the **same AES-GCM key** locally.
 3. Messages are encrypted with AES-GCM + a random IV. The transport only relays
    `{ ciphertext, iv }`. See `lib/crypto.ts`.
@@ -81,4 +82,5 @@ project, run `supabase/schema.sql`, enable Google auth, add your keys to `.env.l
 ## Note
 
 This is a fun/educational project. The disguise is presentation-only; treat the crypto as a
-solid learning implementation rather than an audited secure-messaging product.
+learning implementation rather than an audited secure-messaging product. It does not
+provide Signal-style forward secrecy or automatic peer safety-number verification.

@@ -1,11 +1,11 @@
-# 🔒 Solink — Waves 4–6 Setup (attachments, read receipts + presence, push)
+# 🔒 Solink — Waves 4–8 Setup
 
 Follow these once, in order. Each wave is independent — you can stop after any of them.
 Everything here stays **free**, and Solink stays **end-to-end encrypted** the whole way.
 
 Your Supabase project ref: `zfkxtakrcsqncdxslsvx`
 
-Total time: ~10 minutes.
+Total time: ~15 minutes.
 
 ---
 
@@ -59,20 +59,69 @@ Then add the same var in **Vercel → Project → Settings → Environment Varia
 **c) Create the subscriptions table**
 Open **SQL Editor** → **New query** → paste all of `supabase/wave6-webpush.sql` → **Run**.
 
-**d) Set the function secrets**
+**d) Create a dedicated webhook secret and set the function secrets**
+
+Generate a random 32-byte secret (for example, `openssl rand -hex 32`). Keep
+the value out of Git. Use the same value for `PUSH_WEBHOOK_SECRET` here and
+`solink_push_webhook_secret` in Vault below.
+
 ```bash
 supabase secrets set \
   VAPID_PUBLIC_KEY=<your-vapid-public-key> \
   VAPID_PRIVATE_KEY=<your-vapid-private-key> \
-  VAPID_SUBJECT=mailto:you@example.com
+  VAPID_SUBJECT=mailto:you@example.com \
+  PUSH_WEBHOOK_SECRET=<random-32-byte-secret>
 ```
 
-**e) Deploy the Edge Function**
+**e) Store the function URL + matching secret in Supabase Vault**
+
+Run this in the SQL Editor. Replace the placeholders; never commit the secret.
+
+```sql
+select vault.create_secret(
+  'https://<your-project-ref>.supabase.co/functions/v1/send-push',
+  'solink_send_push_url'
+);
+select vault.create_secret(
+  '<same-random-32-byte-secret>',
+  'solink_push_webhook_secret'
+);
+```
+
+**f) Deploy the Edge Function**
+
+JWT verification is disabled at the gateway because the database trigger is
+not a user session. The function itself rejects every request without the
+Vault-matched `X-Solink-Push-Secret` header.
+
 ```bash
-supabase functions deploy send-push
+supabase functions deploy send-push --no-verify-jwt
 ```
 
 (If you haven't linked the CLI yet: `supabase link --project-ref zfkxtakrcsqncdxslsvx`.)
+
+**g) Install the database trigger**
+
+Run `supabase/wave6-trigger.sql` in the SQL Editor. Push configuration is
+optional: missing Vault secrets cause the trigger to skip push without ever
+blocking message delivery.
+
+---
+
+## Wave 7 — Group chats
+
+Run `supabase/wave7-groups.sql` in the SQL Editor.
+
+---
+
+## Wave 8 — Schema completion + authorization hardening
+
+Run `supabase/wave8-security-hardening.sql` after Waves 4–7. It:
+
+- adds the avatar schema and storage policies used by the profile UI;
+- adds the reactions table and Realtime publication;
+- prevents forged read receipts and group self-joins;
+- de-duplicates Web Push subscriptions.
 
 ---
 
