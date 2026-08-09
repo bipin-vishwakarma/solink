@@ -1,5 +1,7 @@
 # 🔗 Solink
 
+[![CI](https://github.com/bipin-vishwakarma/solink/actions/workflows/ci.yml/badge.svg)](https://github.com/bipin-vishwakarma/solink/actions/workflows/ci.yml)
+
 **End-to-end encrypted chat that disguises your messages as code.** Built with Next.js +
 the native Web Crypto API. Hit a panic key and the whole screen becomes a fake VS Code.
 
@@ -65,6 +67,16 @@ lib/
   supabaseTransport.ts Cloud: profile lookup, DM, history, realtime, send
 supabase/schema.sql    tables + RLS + get_or_create_dm RPC
 ```
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Security model](docs/SECURITY-MODEL.md)
+- [Deployment and rollback](docs/DEPLOYMENT.md)
+- [Supabase Waves 4–8 setup](SETUP-WAVES-4-8.md)
+- [Product and engineering roadmap](docs/ROADMAP.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security reporting](SECURITY.md)
 
 ## Cloud mode — Google login + saved history (built in ✅)
 
