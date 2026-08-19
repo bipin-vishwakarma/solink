@@ -4,13 +4,14 @@ import { useCallback, useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase, type Profile } from "@/lib/supabaseClient";
 import { getOrCreateKeyPair, exportPublicKey } from "@/lib/crypto";
+import { classifyDeviceKey, type DeviceKeyState } from "@/lib/deviceKeyState";
 import { SupabaseTransport, type CloudContext } from "@/lib/supabaseTransport";
 import { GroupTransport, type GroupContext, type GroupEvents } from "@/lib/groupTransport";
 import type { InboxActivity } from "@/lib/types";
 import { ChatShell, type TransportFactory } from "./ChatShell";
 import { LogoMark } from "./Logo";
 
-type Phase = "loading" | "signedout" | "needs-username" | "ready";
+type Phase = "loading" | "signedout" | "needs-username" | "device-recovery" | "ready";
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
@@ -37,6 +38,7 @@ export function CloudApp() {
   const [usernameDraft, setUsernameDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [deviceKeyState, setDeviceKeyState] = useState<DeviceKeyState | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -52,26 +54,41 @@ export function CloudApp() {
       const kp = await getOrCreateKeyPair();
       if (!mounted) return;
       setKeyPair(kp);
-      const { data: prof } = await sb
+      const { data: prof, error: profileError } = await sb
         .from("profiles")
         .select("id, username, public_key, avatar_url")
         .eq("id", id)
         .maybeSingle();
       if (!mounted) return;
+      if (profileError) {
+        setErr("Could not verify your account. Check your connection and try again.");
+        setPhase("device-recovery");
+        return;
+      }
       if (prof && prof.username) {
-        // Keep the DB copy of THIS device's public key current. The private key
-        // lives only in this browser; if it changed (cleared data, incognito, new
-        // browser) the stored public key would be stale and peers would encrypt to
-        // a key we can't decrypt with — messages arrive but silently fail to decrypt.
-        // Re-syncing on every login guarantees peers encrypt to the key we hold.
         try {
           const pub = await exportPublicKey(kp.publicKey);
-          if (prof.public_key !== pub) {
-            await sb.from("profiles").update({ public_key: pub }).eq("id", id);
-            (prof as Profile).public_key = pub;
+          const { data: backup, error: backupError } = await sb
+            .from("key_backups")
+            .select("user_id")
+            .eq("user_id", id)
+            .maybeSingle();
+          if (backupError) throw backupError;
+          const keyState = classifyDeviceKey(pub, prof.public_key, !!backup);
+          setDeviceKeyState(keyState);
+          if (keyState !== "matching") {
+            // Never replace an established account key just because Google SSO
+            // succeeded on a fresh browser. That would strand old history and
+            // race every other logged-in device. Recovery must prove possession
+            // of the established E2EE key.
+            setProfile(prof as Profile);
+            setPhase("device-recovery");
+            return;
           }
         } catch {
-          /* non-fatal */
+          setErr("Could not verify this device's encryption key. Try again.");
+          setPhase("device-recovery");
+          return;
         }
         if (!mounted) return;
         setProfile(prof as Profile);
@@ -330,6 +347,47 @@ export function CloudApp() {
           className="mt-3 w-full text-center text-xs text-brand-faint hover:text-brand-muted"
         >
           sign out
+        </button>
+      </Card>
+    );
+  }
+
+  if (phase === "device-recovery") {
+    return (
+      <Card>
+        <h1 className="mb-2 text-[22px] font-semibold text-brand-text">
+          This is a new device
+        </h1>
+        <p className="text-sm text-brand-muted">
+          Google sign-in linked your account, but this browser does not have the encryption key
+          used for your existing chats. Solink did not replace that key, so your other devices and
+          message history remain safe.
+        </p>
+        {deviceKeyState === "recovery-required" ? (
+          <>
+            <p className="mt-3 text-sm text-brand-muted">
+              An encrypted recovery backup exists. Restore it from your profile to read existing
+              history on this device.
+            </p>
+            <a
+              href="/profile?recover=1"
+              className="mt-5 block w-full rounded-xl bg-brand-accent py-2.5 text-center font-medium text-white transition hover:bg-brand-accentHover"
+            >
+              Restore encryption key
+            </a>
+          </>
+        ) : (
+          <p className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-200">
+            No encrypted recovery backup is available. Existing encrypted history cannot be opened
+            on this installation yet. Use an existing device to create a backup before continuing.
+          </p>
+        )}
+        {err && <p className="mt-3 text-xs text-red-400">{err}</p>}
+        <button
+          onClick={signOut}
+          className="mt-4 w-full rounded-xl border border-brand-border py-2.5 text-sm text-brand-muted hover:bg-white/5"
+        >
+          Sign out
         </button>
       </Card>
     );

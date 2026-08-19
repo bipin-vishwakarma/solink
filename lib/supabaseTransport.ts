@@ -292,12 +292,8 @@ export class SupabaseTransport implements ChatTransport {
     return (await this.refreshPeerKey()) !== null;
   }
 
-  /**
-   * If another browser published a different key for this account, reclaim the
-   * profile for this active device. The failed message cannot be recovered, but
-   * the sender will fetch this repaired key before its next send.
-   */
-  private async syncOwnPublishedKey(): Promise<"current" | "updated" | "failed"> {
+  /** Confirm that this installation owns the account's established key. */
+  private async verifyOwnPublishedKey(): Promise<"current" | "mismatch" | "failed"> {
     try {
       const localPublicKey = await exportPublicKey(this.ctx.keyPair.publicKey);
       const { data, error } = await this.sb
@@ -307,11 +303,7 @@ export class SupabaseTransport implements ChatTransport {
         .maybeSingle();
       if (error || !data?.public_key) return "failed";
       if (data.public_key === localPublicKey) return "current";
-      const { error: updateError } = await this.sb
-        .from("profiles")
-        .update({ public_key: localPublicKey })
-        .eq("id", this.ctx.userId);
-      return updateError ? "failed" : "updated";
+      return "mismatch";
     } catch {
       return "failed";
     }
@@ -328,15 +320,13 @@ export class SupabaseTransport implements ChatTransport {
         try {
           return await decryptMessage(this.sharedKey!, { ciphertext: row.ciphertext, iv: row.iv });
         } catch {
-          // The row may have been encrypted to a different key previously
-          // published by another browser for this account. Repair the profile so
-          // the sender's next pre-send refresh targets this active device.
-          const ownKeyStatus = await this.syncOwnPublishedKey();
+          // A fresh browser must not reclaim the account by replacing its key.
+          const ownKeyStatus = await this.verifyOwnPublishedKey();
           if (!this.keyMismatchReported) {
             this.keyMismatchReported = true;
             this.events.onError?.(
-              ownKeyStatus === "updated"
-                ? "Encryption key mismatch repaired. Ask your contact to resend the last message."
+              ownKeyStatus === "mismatch"
+                ? "This device does not have your account's encryption key. Restore it before messaging."
                 : "A message could not be decrypted. Ask your contact to resend it."
             );
           }
@@ -370,10 +360,15 @@ export class SupabaseTransport implements ChatTransport {
 
   async send(text: string): Promise<WirePayload | null> {
     if (!this.conversationId) return null;
-    // The recipient derives with our profile's public key. Make sure it matches
-    // this browser's private key before creating any ciphertext.
-    if ((await this.syncOwnPublishedKey()) === "failed") {
-      this.events.onError?.("Could not publish this device's encryption key. Try again.");
+    // Never send under a fresh installation key that differs from the account's
+    // established key. Doing so would break other sessions and old history.
+    const ownKeyStatus = await this.verifyOwnPublishedKey();
+    if (ownKeyStatus !== "current") {
+      this.events.onError?.(
+        ownKeyStatus === "mismatch"
+          ? "Restore this account's encryption key before sending from this device."
+          : "Could not verify this device's encryption key. Try again."
+      );
       return null;
     }
     // A peer may have opened Solink in another browser since this chat started.
@@ -423,8 +418,13 @@ export class SupabaseTransport implements ChatTransport {
     caption: string
   ): Promise<{ payload: WirePayload; attachment: AttachmentMeta } | null> {
     if (!this.conversationId) return null;
-    if ((await this.syncOwnPublishedKey()) === "failed") {
-      this.events.onError?.("Could not publish this device's encryption key. Try again.");
+    const ownKeyStatus = await this.verifyOwnPublishedKey();
+    if (ownKeyStatus !== "current") {
+      this.events.onError?.(
+        ownKeyStatus === "mismatch"
+          ? "Restore this account's encryption key before sending from this device."
+          : "Could not verify this device's encryption key. Try again."
+      );
       return null;
     }
     const currentKey = await this.refreshPeerKey();

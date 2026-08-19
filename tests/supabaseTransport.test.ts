@@ -19,16 +19,14 @@ async function createKeyPair(): Promise<CryptoKeyPair> {
 describe("SupabaseTransport", () => {
   it("refreshes a rotated recipient key immediately before sending", async () => {
     const senderKeyPair = await createKeyPair();
-    const staleSenderKeyPair = await createKeyPair();
     const staleRecipientKeyPair = await createKeyPair();
     const currentRecipientKeyPair = await createKeyPair();
     const senderPublicKey = await exportPublicKey(senderKeyPair.publicKey);
-    const staleSenderPublicKey = await exportPublicKey(staleSenderKeyPair.publicKey);
     const staleRecipientPublicKey = await exportPublicKey(staleRecipientKeyPair.publicKey);
     const currentRecipientPublicKey = await exportPublicKey(currentRecipientKeyPair.publicKey);
 
     let publishedRecipientKey = staleRecipientPublicKey;
-    let publishedSenderKey = staleSenderPublicKey;
+    let publishedSenderKey = senderPublicKey;
     let profileLookupCount = 0;
     let insertedRow: { ciphertext: string; iv: string } | null = null;
 
@@ -206,5 +204,102 @@ describe("SupabaseTransport", () => {
         iv: insertedRow!.iv,
       })
     ).rejects.toThrow();
+  });
+
+  it("refuses to send instead of overwriting a mismatched sender key", async () => {
+    const senderKeyPair = await createKeyPair();
+    const publishedSenderKeyPair = await createKeyPair();
+    const recipientKeyPair = await createKeyPair();
+    const publishedSenderKey = await exportPublicKey(publishedSenderKeyPair.publicKey);
+    const recipientPublicKey = await exportPublicKey(recipientKeyPair.publicKey);
+    const update = vi.fn();
+    const insert = vi.fn();
+
+    const fakeChannel = {
+      on() { return this; },
+      subscribe() { return this; },
+      send: vi.fn(),
+      track: vi.fn(),
+      presenceState() { return {}; },
+    };
+    const fakeSupabase = {
+      from(table: string) {
+        if (table === "profiles") {
+          return {
+            select() {
+              return {
+                ilike() {
+                  return {
+                    async maybeSingle() {
+                      return {
+                        data: { id: "peer-user", username: "peer", public_key: recipientPublicKey },
+                        error: null,
+                      };
+                    },
+                  };
+                },
+                eq(...args: unknown[]) {
+                  return {
+                    async maybeSingle() {
+                      return {
+                        data: {
+                          public_key: String(args[1]) === "sender-user"
+                            ? publishedSenderKey
+                            : recipientPublicKey,
+                        },
+                        error: null,
+                      };
+                    },
+                  };
+                },
+              };
+            },
+            update,
+          };
+        }
+        if (table === "messages") {
+          return {
+            select() {
+              return {
+                eq() {
+                  return { order() { return { async limit() { return { data: [] }; } }; } };
+                },
+              };
+            },
+            insert,
+          };
+        }
+        if (table === "reactions") {
+          return { select() { return { async in() { return { data: [] }; } }; } };
+        }
+        throw new Error("Unexpected table: " + table);
+      },
+      async rpc() { return { data: "conversation-id", error: null }; },
+      channel() { return fakeChannel; },
+      async removeChannel() { return "ok"; },
+    } as unknown as SupabaseClient;
+    const events: TransportEvents = {
+      onPeer: vi.fn(),
+      onMessage: vi.fn(),
+      onWireLog: vi.fn(),
+      onError: vi.fn(),
+    };
+    const transport = new SupabaseTransport("peer", events, {
+      supabase: fakeSupabase,
+      userId: "sender-user",
+      username: "sender",
+      keyPair: senderKeyPair,
+    });
+
+    await transport.start();
+    const sent = await transport.send("must not be encrypted with the wrong key");
+    transport.destroy();
+
+    expect(sent).toBeNull();
+    expect(update).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+    expect(events.onError).toHaveBeenCalledWith(
+      "Restore this account's encryption key before sending from this device."
+    );
   });
 });

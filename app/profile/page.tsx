@@ -7,7 +7,14 @@ import { supabase } from "@/lib/supabaseClient";
 import { Avatar } from "@/components/Avatar";
 import { QRCode } from "@/components/QRCode";
 import { ImageCropper } from "@/components/ImageCropper";
-import { getOrCreateKeyPair, backupKeyPair, restoreKeyPair, exportPublicKey } from "@/lib/crypto";
+import {
+  getOrCreateKeyPair,
+  backupKeyPair,
+  unwrapKeyPair,
+  persistKeyPair,
+  clearPersistedKeyPair,
+  exportPublicKey,
+} from "@/lib/crypto";
 
 export default function ProfilePage() {
   const id = useIdentity();
@@ -23,10 +30,17 @@ export default function ProfilePage() {
   const [backupPass, setBackupPass] = useState("");
   const [restorePass, setRestorePass] = useState("");
   const [showRestore, setShowRestore] = useState(false);
+  const [recoveryMode, setRecoveryMode] = useState(false);
 
   useEffect(() => {
     setAvatarUrl(id.avatarUrl);
   }, [id.avatarUrl]);
+
+  useEffect(() => {
+    const recovering = new URLSearchParams(window.location.search).get("recover") === "1";
+    setRecoveryMode(recovering);
+    setShowRestore(recovering);
+  }, []);
 
   useEffect(() => {
     if (!id.userId || !supabase) return;
@@ -48,6 +62,23 @@ export default function ProfilePage() {
     setKbMsg(null);
     try {
       const kp = await getOrCreateKeyPair();
+      const pub = await exportPublicKey(kp.publicKey);
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("public_key")
+        .eq("id", id.userId)
+        .maybeSingle();
+      if (profileError || !profile?.public_key) {
+        throw profileError || new Error("Account key unavailable");
+      }
+      if (profile.public_key !== pub) {
+        setShowRestore(true);
+        setKbMsg({
+          kind: "err",
+          text: "Restore this account's encryption key before creating or updating its backup.",
+        });
+        return;
+      }
       const blob = await backupKeyPair(kp, backupPass);
       const { error } = await supabase
         .from("key_backups")
@@ -77,10 +108,31 @@ export default function ProfilePage() {
         setKbMsg({ kind: "err", text: "No backup found for this account." });
         return;
       }
-      const kp = await restoreKeyPair(data.blob, restorePass); // throws on wrong passphrase
-      // Republish the restored public key so peers encrypt to the key we now hold.
+      const kp = await unwrapKeyPair(data.blob, restorePass); // throws on wrong passphrase
+      // Verify before replacing IndexedDB. A stale or unrelated backup must not
+      // destroy the current installation's working key.
       const pub = await exportPublicKey(kp.publicKey);
-      await supabase.from("profiles").update({ public_key: pub }).eq("id", id.userId);
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("public_key")
+        .eq("id", id.userId)
+        .maybeSingle();
+      if (!profile?.public_key || profile.public_key !== pub) {
+        setKbMsg({ kind: "err", text: "This backup does not match the account's encryption key." });
+        return;
+      }
+      const previous = await getOrCreateKeyPair();
+      await persistKeyPair(kp);
+      const { data: verified, error: verifyError } = await supabase
+        .from("profiles")
+        .select("public_key")
+        .eq("id", id.userId)
+        .maybeSingle();
+      if (verifyError || verified?.public_key !== pub) {
+        if (recoveryMode) await clearPersistedKeyPair();
+        else await persistKeyPair(previous);
+        throw verifyError || new Error("Account key changed during recovery");
+      }
       setKbMsg({ kind: "ok", text: "Key restored. Reloading…" });
       setTimeout(() => {
         // A full reload is required after replacing IndexedDB key material.
@@ -192,7 +244,7 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {!showRestore ? (
+            {!showRestore && !recoveryMode ? (
               <>
                 <div className="flex items-center gap-2 text-[11px]">
                   <span className={backupExists ? "text-brand-online" : "text-brand-faint"}>
@@ -242,12 +294,12 @@ export default function ProfilePage() {
                   >
                     {kbBusy ? "Restoring…" : "Restore on this device"}
                   </button>
-                  <button
+                  {!recoveryMode && <button
                     onClick={() => { setShowRestore(false); setKbMsg(null); }}
                     className="pressable rounded-xl border border-brand-border px-3 py-2 text-sm text-brand-muted hover:bg-white/5"
                   >
                     Cancel
-                  </button>
+                  </button>}
                 </div>
               </>
             )}
