@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useIdentity, signOut } from "@/lib/identity";
 import {
@@ -10,6 +11,15 @@ import {
 } from "@/lib/notify";
 import { isPushSupported, subscribeToPush } from "@/lib/push";
 import { Avatar } from "@/components/Avatar";
+import { supabase } from "@/lib/supabaseClient";
+import {
+  DEVICE_LIMIT,
+  getOrCreateInstallationId,
+  listAccountDevices,
+  renameAccountDevice,
+  revokeAccountDevice,
+  type AccountDevice,
+} from "@/lib/deviceRegistry";
 
 function Row({
   title,
@@ -46,12 +56,20 @@ function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
 }
 
 export default function SettingsPage() {
+  const router = useRouter();
   const id = useIdentity();
   const [notifyOn, setNotifyOn] = useState(false);
   const [stealthDefault, setStealthDefault] = useState(false);
   const [autoStealth, setAutoStealth] = useState(false);
   const [lightTheme, setLightTheme] = useState(false);
   const [supported, setSupported] = useState(true); // assume supported for SSR match
+  const [devices, setDevices] = useState<AccountDevice[]>([]);
+  const [devicesBusy, setDevicesBusy] = useState(false);
+  const [devicesError, setDevicesError] = useState<string | null>(null);
+  const currentInstallationId =
+    typeof window === "undefined" || !id.userId
+      ? ""
+      : getOrCreateInstallationId(localStorage, id.userId);
 
   useEffect(() => {
     setSupported(notifySupported());
@@ -60,6 +78,58 @@ export default function SettingsPage() {
     setAutoStealth(localStorage.getItem("solink:autoStealth") === "1");
     setLightTheme(document.documentElement.getAttribute("data-theme") === "light");
   }, []);
+
+  async function refreshDevices() {
+    if (!supabase || id.mode !== "cloud" || !id.userId) return;
+    setDevicesBusy(true);
+    setDevicesError(null);
+    try {
+      setDevices(await listAccountDevices(supabase));
+    } catch {
+      setDevicesError("Linked devices are unavailable until the device-registry migration is deployed.");
+    } finally {
+      setDevicesBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshDevices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id.mode, id.userId]);
+
+  async function renameDevice(device: AccountDevice) {
+    if (!supabase) return;
+    const name = window.prompt("Device name", device.name)?.trim();
+    if (!name || name === device.name) return;
+    try {
+      await renameAccountDevice(supabase, device.id, name, id.userId || undefined);
+      await refreshDevices();
+    } catch {
+      setDevicesError("Could not rename that device.");
+    }
+  }
+
+  async function removeDevice(device: AccountDevice) {
+    if (!supabase) return;
+    const current = device.id === currentInstallationId;
+    const confirmed = window.confirm(
+      current
+        ? "Remove this device from Solink and sign out?"
+        : `Remove ${device.name}? This frees one of your five device slots.`
+    );
+    if (!confirmed) return;
+    try {
+      await revokeAccountDevice(supabase, device.id);
+      if (current) {
+        await supabase.auth.signOut({ scope: "local" });
+        router.push("/");
+        return;
+      }
+      await refreshDevices();
+    } catch {
+      setDevicesError("Could not remove that device.");
+    }
+  }
 
   function toggleAutoStealth() {
     const v = !autoStealth;
@@ -167,6 +237,73 @@ export default function SettingsPage() {
           <span className="text-lg">⌨️</span>
         </Row>
       </div>
+
+      {id.mode === "cloud" && id.userId && (
+        <div className="mt-4 overflow-hidden rounded-2xl border border-brand-border bg-brand-surface/70">
+          <div className="flex items-center gap-3 border-b border-brand-border px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium text-brand-text">Linked devices</div>
+              <div className="text-xs text-brand-muted">
+                {devices.length} / {DEVICE_LIMIT} active device slots used
+              </div>
+            </div>
+            <button
+              onClick={() => void refreshDevices()}
+              disabled={devicesBusy}
+              className="rounded-lg border border-brand-border px-2.5 py-1.5 text-xs text-brand-muted hover:bg-white/5 disabled:opacity-50"
+            >
+              {devicesBusy ? "…" : "Refresh"}
+            </button>
+          </div>
+          {devicesError && <p className="px-4 py-3 text-xs text-amber-300">{devicesError}</p>}
+          {!devicesError && !devicesBusy && devices.length === 0 && (
+            <p className="px-4 py-3 text-xs text-brand-muted">No registered devices yet.</p>
+          )}
+          <div className="divide-y divide-brand-border">
+            {devices.map((device) => {
+              const current = device.id === currentInstallationId;
+              return (
+                <div key={device.id} className="px-4 py-3">
+                  <div className="flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 text-sm font-medium text-brand-text">
+                        <span className="truncate">{device.name}</span>
+                        {current && (
+                          <span className="rounded-full bg-brand-accent/15 px-2 py-0.5 text-[10px] text-brand-accent">
+                            this device
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 truncate text-[11px] text-brand-muted">
+                        {device.platform}
+                      </div>
+                      <div className="mt-0.5 text-[10px] text-brand-faint">
+                        Last active {new Date(device.last_active_at).toLocaleString()}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => void renameDevice(device)}
+                      className="text-xs text-brand-muted hover:text-brand-text"
+                    >
+                      Rename
+                    </button>
+                    <button
+                      onClick={() => void removeDevice(device)}
+                      className="text-xs text-red-300 hover:text-red-200"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="border-t border-brand-border px-4 py-3 text-[10px] text-brand-faint">
+            Removing a device frees its slot and excludes it from future per-device key delivery.
+            It does not yet end that browser&apos;s Supabase session and cannot erase downloaded messages.
+          </p>
+        </div>
+      )}
 
       <button
         onClick={signOut}

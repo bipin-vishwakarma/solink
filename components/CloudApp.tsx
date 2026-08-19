@@ -5,13 +5,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase, type Profile } from "@/lib/supabaseClient";
 import { getOrCreateKeyPair, exportPublicKey } from "@/lib/crypto";
 import { classifyDeviceKey, type DeviceKeyState } from "@/lib/deviceKeyState";
+import { registerCurrentDevice, startDeviceHeartbeat } from "@/lib/deviceRegistry";
 import { SupabaseTransport, type CloudContext } from "@/lib/supabaseTransport";
 import { GroupTransport, type GroupContext, type GroupEvents } from "@/lib/groupTransport";
 import type { InboxActivity } from "@/lib/types";
 import { ChatShell, type TransportFactory } from "./ChatShell";
 import { LogoMark } from "./Logo";
 
-type Phase = "loading" | "signedout" | "needs-username" | "device-recovery" | "ready";
+type Phase =
+  | "loading"
+  | "signedout"
+  | "needs-username"
+  | "device-recovery"
+  | "device-limit"
+  | "ready";
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
@@ -85,6 +92,14 @@ export function CloudApp() {
             setPhase("device-recovery");
             return;
           }
+          const registration = await registerCurrentDevice(sb, kp, id);
+          if (registration.limitReached) {
+            setProfile(prof as Profile);
+            setPhase("device-limit");
+            return;
+          }
+          // The registry migration can be staged independently. A temporary
+          // registry outage must not take down the known-good message path.
         } catch {
           setErr("Could not verify this device's encryption key. Try again.");
           setPhase("device-recovery");
@@ -107,6 +122,11 @@ export function CloudApp() {
       sub.subscription.unsubscribe();
     };
   }, [sb]);
+
+  useEffect(() => {
+    if (phase !== "ready" || !userId) return;
+    return startDeviceHeartbeat(sb, userId);
+  }, [phase, sb, userId]);
 
   const makeTransport = useCallback<TransportFactory>(
     (peer, events) => {
@@ -386,6 +406,30 @@ export function CloudApp() {
         <button
           onClick={signOut}
           className="mt-4 w-full rounded-xl border border-brand-border py-2.5 text-sm text-brand-muted hover:bg-white/5"
+        >
+          Sign out
+        </button>
+      </Card>
+    );
+  }
+
+  if (phase === "device-limit") {
+    return (
+      <Card>
+        <h1 className="mb-2 text-[22px] font-semibold text-brand-text">Device limit reached</h1>
+        <p className="text-sm text-brand-muted">
+          This account already has five active devices. Remove one in Settings, then return here
+          to link this browser.
+        </p>
+        <a
+          href="/settings?link=1"
+          className="mt-5 block w-full rounded-xl bg-brand-accent py-2.5 text-center font-medium text-white transition hover:bg-brand-accentHover"
+        >
+          Manage linked devices
+        </a>
+        <button
+          onClick={signOut}
+          className="mt-3 w-full rounded-xl border border-brand-border py-2.5 text-sm text-brand-muted hover:bg-white/5"
         >
           Sign out
         </button>

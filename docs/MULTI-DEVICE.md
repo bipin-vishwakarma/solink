@@ -5,7 +5,8 @@ issues #12 through #15.
 
 ## Product decision
 
-- Google SSO links an unlimited number of installations to one account.
+- Google SSO links up to five active installations to one account. Revoking a
+  device frees a slot.
 - Solink continues to provide end-to-end content encryption. SSO proves control
   of the account; it does not give the server permission to decrypt history.
 - A fresh installation must not silently replace encryption material already
@@ -57,13 +58,18 @@ subscription, device name, and local app lock.
 
 ### Phase 3: device registry and revocation (#14)
 
-Add owner-only installation records with an unlimited count: random ID, name,
+Add owner-only installation records with an atomic five-active-device cap: random ID, name,
 coarse platform label, created time, last-active time, public key, key version,
 and revoked time. Settings lists devices, marks the current one, supports rename
 and removal, and can sign out all other sessions where the auth platform allows.
 
 Revocation removes future application access and key delivery but cannot erase
 plaintext or ciphertext already downloaded by a compromised device.
+
+The first registry release is inventory and capacity enforcement. A remote
+removal does not yet invalidate that browser's Supabase refresh token because
+current Auth tokens identify the account, not a particular installation. Hard
+revocation requires device-bound authorization on every protected data path.
 
 ### Phase 4: per-device encryption (#15)
 
