@@ -87,15 +87,13 @@ begin
   end if;
 
   if existing.id is not null and existing.revoked_at is null then
-    if existing.auth_session_id <> current_session then
-      raise exception 'DEVICE_SESSION_MISMATCH';
-    end if;
     if existing.public_key <> device_public_key then
       raise exception 'device key replacement is not allowed';
     end if;
     update public.account_devices
     set name = trim(device_name),
         platform = trim(device_platform),
+        auth_session_id = current_session,
         last_active_at = now()
     where id = installation_id and user_id = me
     returning * into result;

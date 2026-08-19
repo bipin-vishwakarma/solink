@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEVICE_LIMIT,
   defaultDeviceName,
+  forgetInstallationId,
   getOrCreateInstallationId,
   isDeviceLimitError,
 } from "../lib/deviceRegistry";
@@ -64,6 +65,17 @@ describe("device registry policy", () => {
 
     expect(secondAccount).not.toBe(firstAccount);
     expect(getOrCreateInstallationId(storage, "account-a")).toBe(firstAccount);
+  });
+
+  it("forgets only the removed account installation ID", () => {
+    const storage = new MemoryStorage();
+    const first = getOrCreateInstallationId(storage, "account-a");
+    const second = getOrCreateInstallationId(storage, "account-b");
+
+    forgetInstallationId("account-a", storage);
+
+    expect(getOrCreateInstallationId(storage, "account-a")).not.toBe(first);
+    expect(getOrCreateInstallationId(storage, "account-b")).toBe(second);
   });
 
   it.each([

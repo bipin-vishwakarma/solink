@@ -98,8 +98,12 @@ export function CloudApp() {
             setPhase("device-limit");
             return;
           }
-          // The registry migration can be staged independently. A temporary
-          // registry outage must not take down the known-good message path.
+          if (registration.error) {
+            setErr("Could not register this device. Check your connection and try again.");
+            setProfile(prof as Profile);
+            setPhase("device-limit");
+            return;
+          }
         } catch {
           setErr("Could not verify this device's encryption key. Try again.");
           setPhase("device-recovery");
@@ -294,6 +298,17 @@ export function CloudApp() {
       setErr(error.code === "23505" ? "That username is taken" : error.message);
       return;
     }
+    const registration = await registerCurrentDevice(sb, kp, userId);
+    if (registration.limitReached || registration.error) {
+      setErr(
+        registration.limitReached
+          ? "This account already has five active devices."
+          : "Your profile was created, but this device could not be registered. Try again."
+      );
+      setProfile({ id: userId, username: uname, public_key: pub });
+      setPhase("device-limit");
+      return;
+    }
     setProfile({ id: userId, username: uname, public_key: pub });
     setPhase("ready");
   }
@@ -383,6 +398,7 @@ export function CloudApp() {
           used for your existing chats. Solink did not replace that key, so your other devices and
           message history remain safe.
         </p>
+        {err && <p className="mt-3 text-xs text-red-400">{err}</p>}
         {deviceKeyState === "recovery-required" ? (
           <>
             <p className="mt-3 text-sm text-brand-muted">

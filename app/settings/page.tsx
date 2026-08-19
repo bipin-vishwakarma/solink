@@ -14,6 +14,7 @@ import { Avatar } from "@/components/Avatar";
 import { supabase } from "@/lib/supabaseClient";
 import {
   DEVICE_LIMIT,
+  forgetInstallationId,
   getOrCreateInstallationId,
   listAccountDevices,
   renameAccountDevice,
@@ -121,6 +122,7 @@ export default function SettingsPage() {
     try {
       await revokeAccountDevice(supabase, device.id);
       if (current) {
+        forgetInstallationId(id.userId as string);
         await supabase.auth.signOut({ scope: "local" });
         router.push("/");
         return;

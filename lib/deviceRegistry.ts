@@ -27,6 +27,10 @@ export function getOrCreateInstallationId(
   return id;
 }
 
+export function forgetInstallationId(accountId: string, storage: Storage = localStorage): void {
+  storage.removeItem(`${INSTALLATION_KEY}:${accountId}`);
+}
+
 export function defaultDeviceName(userAgent: string): string {
   const mobile = /Android|iPhone|iPad|Mobile/i.test(userAgent);
   const browser = /Edg\//.test(userAgent)
