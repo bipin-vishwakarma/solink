@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   decryptMessage,
   deriveSharedKey,
+  encryptMessage,
   exportPublicKey,
 } from "../lib/crypto";
 import { SupabaseTransport, type CloudContext } from "../lib/supabaseTransport";
@@ -17,6 +18,133 @@ async function createKeyPair(): Promise<CryptoKeyPair> {
 }
 
 describe("SupabaseTransport", () => {
+  it("delivers a message only once when history and realtime overlap", async () => {
+    const localKeyPair = await createKeyPair();
+    const peerKeyPair = await createKeyPair();
+    const localPublicKey = await exportPublicKey(localKeyPair.publicKey);
+    const peerPublicKey = await exportPublicKey(peerKeyPair.publicKey);
+    const sharedKey = await deriveSharedKey(peerKeyPair.privateKey, localKeyPair.publicKey);
+    const encrypted = await encryptMessage(sharedKey, "one delivery only");
+    const row = {
+      id: "overlap-message",
+      conversation_id: "conversation-id",
+      sender_id: "peer-user",
+      ciphertext: encrypted.ciphertext,
+      iv: encrypted.iv,
+      created_at: new Date().toISOString(),
+    };
+    let realtimeInsert: ((payload: { new: typeof row }) => void) | undefined;
+
+    const fakeChannel = {
+      on(
+        type: string,
+        filter: { event?: string; table?: string },
+        callback: (payload: { new: typeof row }) => void
+      ) {
+        if (
+          type === "postgres_changes" &&
+          filter.event === "INSERT" &&
+          filter.table === "messages"
+        ) {
+          realtimeInsert = callback;
+        }
+        return this;
+      },
+      subscribe() { return this; },
+      send: vi.fn(),
+      track: vi.fn(),
+      presenceState() { return {}; },
+    };
+    const fakeSupabase = {
+      from(table: string) {
+        if (table === "profiles") {
+          return {
+            select() {
+              return {
+                ilike() {
+                  return {
+                    async maybeSingle() {
+                      return {
+                        data: {
+                          id: "peer-user",
+                          username: "peer",
+                          public_key: peerPublicKey,
+                          avatar_url: null,
+                        },
+                        error: null,
+                      };
+                    },
+                  };
+                },
+                eq(...args: unknown[]) {
+                  return {
+                    async maybeSingle() {
+                      return {
+                        data: {
+                          public_key: String(args[1]) === "local-user"
+                            ? localPublicKey
+                            : peerPublicKey,
+                        },
+                        error: null,
+                      };
+                    },
+                  };
+                },
+              };
+            },
+          };
+        }
+        if (table === "messages") {
+          return {
+            select() {
+              return {
+                eq() {
+                  return {
+                    order() {
+                      return { async limit() { return { data: [row] }; } };
+                    },
+                  };
+                },
+              };
+            },
+          };
+        }
+        if (table === "reactions") {
+          return { select() { return { async in() { return { data: [] }; } }; } };
+        }
+        throw new Error("Unexpected table: " + table);
+      },
+      async rpc() { return { data: "conversation-id", error: null }; },
+      channel() { return fakeChannel; },
+      async removeChannel() { return "ok"; },
+    } as unknown as SupabaseClient;
+    const events: TransportEvents = {
+      onPeer: vi.fn(),
+      onMessage: vi.fn(),
+      onWireLog: vi.fn(),
+      onError: vi.fn(),
+    };
+    const transport = new SupabaseTransport("peer", events, {
+      supabase: fakeSupabase,
+      userId: "local-user",
+      username: "local",
+      keyPair: localKeyPair,
+    });
+
+    await transport.start();
+    expect(realtimeInsert).toBeTypeOf("function");
+    realtimeInsert!({ new: row });
+    await vi.waitFor(() => expect(events.onMessage).toHaveBeenCalledTimes(1));
+    transport.destroy();
+
+    expect(events.onMessage).toHaveBeenCalledWith(
+      "one delivery only",
+      expect.objectContaining({ id: "overlap-message" }),
+      false
+    );
+    expect(events.onError).not.toHaveBeenCalled();
+  });
+
   it("refreshes a rotated recipient key immediately before sending", async () => {
     const senderKeyPair = await createKeyPair();
     const staleRecipientKeyPair = await createKeyPair();
@@ -301,5 +429,109 @@ describe("SupabaseTransport", () => {
     expect(events.onError).toHaveBeenCalledWith(
       "Restore this account's encryption key before sending from this device."
     );
+  });
+
+  it("removes an uploaded encrypted attachment when its message insert fails", async () => {
+    const senderKeyPair = await createKeyPair();
+    const recipientKeyPair = await createKeyPair();
+    const senderPublicKey = await exportPublicKey(senderKeyPair.publicKey);
+    const recipientPublicKey = await exportPublicKey(recipientKeyPair.publicKey);
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    const upload = vi.fn().mockResolvedValue({ error: null });
+
+    const fakeChannel = {
+      on() { return this; },
+      subscribe() { return this; },
+      send: vi.fn(),
+      track: vi.fn(),
+      presenceState() { return {}; },
+    };
+    const fakeSupabase = {
+      from(table: string) {
+        if (table === "profiles") {
+          return {
+            select() {
+              return {
+                ilike() {
+                  return {
+                    async maybeSingle() {
+                      return {
+                        data: { id: "peer-user", username: "peer", public_key: recipientPublicKey },
+                        error: null,
+                      };
+                    },
+                  };
+                },
+                eq(...args: unknown[]) {
+                  return {
+                    async maybeSingle() {
+                      return {
+                        data: {
+                          public_key: String(args[1]) === "sender-user"
+                            ? senderPublicKey
+                            : recipientPublicKey,
+                        },
+                        error: null,
+                      };
+                    },
+                  };
+                },
+              };
+            },
+          };
+        }
+        if (table === "messages") {
+          return {
+            select() {
+              return {
+                eq() {
+                  return { order() { return { async limit() { return { data: [] }; } }; } };
+                },
+              };
+            },
+            insert() {
+              return { select() { return { async single() {
+                return { data: null, error: { message: "insert failed" } };
+              } }; } };
+            },
+          };
+        }
+        if (table === "reactions") {
+          return { select() { return { async in() { return { data: [] }; } }; } };
+        }
+        throw new Error("Unexpected table: " + table);
+      },
+      storage: {
+        from() { return { upload, remove }; },
+      },
+      async rpc() { return { data: "conversation-id", error: null }; },
+      channel() { return fakeChannel; },
+      async removeChannel() { return "ok"; },
+    } as unknown as SupabaseClient;
+    const events: TransportEvents = {
+      onPeer: vi.fn(),
+      onMessage: vi.fn(),
+      onWireLog: vi.fn(),
+      onError: vi.fn(),
+    };
+    const transport = new SupabaseTransport("peer", events, {
+      supabase: fakeSupabase,
+      userId: "sender-user",
+      username: "sender",
+      keyPair: senderKeyPair,
+    });
+
+    await transport.start();
+    const result = await transport.sendAttachment(
+      new TextEncoder().encode("attachment").buffer,
+      { name: "note.txt", mime: "text/plain", size: 10 },
+      ""
+    );
+    transport.destroy();
+
+    expect(result).toBeNull();
+    expect(upload).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledOnce();
+    expect(remove.mock.calls[0][0]).toHaveLength(1);
   });
 });

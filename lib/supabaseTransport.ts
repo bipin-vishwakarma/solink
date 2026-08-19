@@ -447,7 +447,12 @@ export class SupabaseTransport implements ChatTransport {
       encodeMessage(caption, undefined, attachment),
       currentKey
     );
-    if (!payload) return null;
+    if (!payload) {
+      // The encrypted object is otherwise orphaned when the message insert
+      // fails. Cleanup is best-effort and never changes delivery semantics.
+      await this.sb.storage.from(ATTACH_BUCKET).remove([path]);
+      return null;
+    }
     return { payload, attachment };
   }
 
