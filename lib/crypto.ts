@@ -11,6 +11,7 @@
 const DB_NAME = "solink";
 const STORE = "keys";
 const MY_KEYPAIR_ID = "me";
+let keyPairPromise: Promise<CryptoKeyPair> | null = null;
 
 // ---------- base64 helpers ----------
 
@@ -65,6 +66,26 @@ function idbSet(key: string, value: unknown): Promise<void> {
   );
 }
 
+/** Replace this installation's persisted key only after recovery is verified. */
+export async function persistKeyPair(keyPair: CryptoKeyPair): Promise<void> {
+  await idbSet(MY_KEYPAIR_ID, keyPair);
+  keyPairPromise = Promise.resolve(keyPair);
+}
+
+/** Remove an unlinked generated key (used only to roll back failed recovery). */
+export async function clearPersistedKeyPair(): Promise<void> {
+  await openDb().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE, "readwrite");
+        tx.objectStore(STORE).delete(MY_KEYPAIR_ID);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      })
+  );
+  keyPairPromise = null;
+}
+
 // ---------- key management ----------
 
 /**
@@ -74,17 +95,25 @@ function idbSet(key: string, value: unknown): Promise<void> {
  * ordinary messaging never exports it.
  */
 export async function getOrCreateKeyPair(): Promise<CryptoKeyPair> {
-  const existing = await idbGet<CryptoKeyPair>(MY_KEYPAIR_ID);
-  if (existing) return existing;
+  if (!keyPairPromise) {
+    keyPairPromise = (async () => {
+      const existing = await idbGet<CryptoKeyPair>(MY_KEYPAIR_ID);
+      if (existing) return existing;
 
-  const pair = await crypto.subtle.generateKey(
-    { name: "ECDH", namedCurve: "P-256" },
-    // public key is extractable (so we can publish it); the pair as a whole is stored.
-    true,
-    ["deriveKey"]
-  );
-  await idbSet(MY_KEYPAIR_ID, pair);
-  return pair;
+      const pair = await crypto.subtle.generateKey(
+        { name: "ECDH", namedCurve: "P-256" },
+        // public key is extractable (so we can publish it); the pair as a whole is stored.
+        true,
+        ["deriveKey"]
+      );
+      await idbSet(MY_KEYPAIR_ID, pair);
+      return pair;
+    })().catch((error) => {
+      keyPairPromise = null;
+      throw error;
+    });
+  }
+  return keyPairPromise;
 }
 
 /** Export a public key to a base64 string suitable for storing/transmitting. */
@@ -161,8 +190,16 @@ export async function backupKeyPair(keyPair: CryptoKeyPair, passphrase: string):
  * Restore a key pair from a backup string + passphrase, and persist it as THIS
  * device's key pair. Throws if the passphrase is wrong (AES-GCM auth fails).
  */
-export async function restoreKeyPair(backup: string, passphrase: string): Promise<CryptoKeyPair> {
+export async function unwrapKeyPair(backup: string, passphrase: string): Promise<CryptoKeyPair> {
   const env = JSON.parse(atob(backup)) as { salt: string; iv: string; ct: string };
+  if (
+    (env as { v?: unknown }).v !== 1 ||
+    typeof env.salt !== "string" ||
+    typeof env.iv !== "string" ||
+    typeof env.ct !== "string"
+  ) {
+    throw new Error("Unsupported or malformed key backup");
+  }
   const salt = new Uint8Array(b64ToBuf(env.salt));
   const iv = new Uint8Array(b64ToBuf(env.iv));
   const wrapKey = await deriveWrapKey(passphrase, salt);
@@ -182,8 +219,12 @@ export async function restoreKeyPair(backup: string, passphrase: string): Promis
     true,
     []
   );
-  const pair = { privateKey, publicKey } as CryptoKeyPair;
-  await idbSet(MY_KEYPAIR_ID, pair);
+  return { privateKey, publicKey } as CryptoKeyPair;
+}
+
+export async function restoreKeyPair(backup: string, passphrase: string): Promise<CryptoKeyPair> {
+  const pair = await unwrapKeyPair(backup, passphrase);
+  await persistKeyPair(pair);
   return pair;
 }
 

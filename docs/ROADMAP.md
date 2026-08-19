@@ -29,22 +29,22 @@ acceptance criteria.
 - [x] Stage and apply Wave 8 authorization hardening.
 - [x] Deploy and verify authenticated push delivery.
 - [ ] Add automated RLS policy tests.
-- [ ] Replace automatic public-key overwrite with an explicit device enrollment
+- [x] Replace automatic public-key overwrite with an explicit device enrollment
       and recovery flow.
 - [ ] Add peer key-change warnings and human-verifiable fingerprints.
 - [ ] Enforce blocking at the database authorization layer.
-- [ ] Restrict attachment object access to conversation members.
+- [x] Restrict attachment object access to conversation members.
 - [ ] Add CSP, Referrer Policy, MIME sniffing protection, and Permissions Policy.
 - [x] Enable GitHub private vulnerability reporting and dependency alerts.
 
 ## P1 — Messaging reliability
 
 - [ ] Choose and add an explicit open-source or source-available license.
-- [ ] Add automated tests for encryption envelopes and transport deduplication.
+- [x] Add automated tests for encryption envelopes and transport deduplication.
 - [ ] Add browser end-to-end tests for two-user DM and group flows.
 - [ ] Cancel stale transport startup work when switching conversations.
 - [ ] Add offline/outbox behavior with deterministic retries.
-- [ ] Clean up orphaned encrypted attachments after failed message inserts.
+- [x] Clean up orphaned encrypted attachments after failed message inserts.
 - [ ] Add observable delivery diagnostics without logging plaintext.
 - [ ] Define database backup and restore drills.
 

@@ -36,6 +36,8 @@ Apply each file once, in order, to a new project:
 4. `supabase/wave6-webpush.sql`
 5. `supabase/wave7-groups.sql`
 6. `supabase/wave8-security-hardening.sql`
+7. `supabase/migrations/20260820213000_account_devices.sql`
+8. `supabase/migrations/20260820223000_attachment_member_access.sql`
 
 Then configure Google OAuth and allowed redirect URLs as described in
 `SETUP-CLOUD.md`.
@@ -50,6 +52,10 @@ supabase db push --linked
 ```
 
 Never use `supabase db reset --linked` on production.
+
+The account-device migration must be applied before enabling the linked-devices
+UI in production. Validate its RLS and `register_account_device` concurrency in
+staging; do not treat inventory removal as Auth-session revocation.
 
 ## Push delivery setup
 
@@ -89,10 +95,14 @@ trigger. The Edge Function itself must return HTTP 401 when the
 
 - Google OAuth completes and returns to the production origin.
 - Existing users load their profiles without key replacement surprises.
+- Existing users register in `account_devices`; five active devices are allowed
+  and a concurrent sixth registration is rejected with `DEVICE_LIMIT_REACHED`.
 - Two distinct users can send, receive, reconnect, and load history.
 - Ciphertext—not plaintext—is stored in message rows.
 - Reads, reactions, unsend, and typing behave correctly.
 - Encrypted image/file upload and download work.
+- Conversation members can access their encrypted attachment objects;
+  authenticated non-members are denied.
 - Group creation and messaging work for members; non-members are denied.
 - Push works with the app closed and rejects an invalid webhook secret.
 - `/settings`, `/profile`, manifest, service worker, and Open Graph image load.
