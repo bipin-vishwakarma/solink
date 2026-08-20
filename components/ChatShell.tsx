@@ -1035,15 +1035,17 @@ export function ChatShell({
           </div>
         ) : (
           <>
-            <header className="flex items-center gap-3 border-b border-brand-border bg-brand-surface/70 px-3 pb-2.5 pt-[calc(0.625rem+var(--safe-top))] backdrop-blur sm:px-4">
+            <header className="flex items-center gap-2 border-b border-brand-border bg-brand-surface/70 px-2.5 pb-2.5 pt-[calc(0.625rem+var(--safe-top))] backdrop-blur sm:gap-3 sm:px-4">
               <button
                 onClick={() => setActiveContact(null)}
-                className="pressable rounded-lg p-1.5 text-brand-muted hover:bg-white/5 md:hidden"
-                aria-label="Back"
+                className="pressable grid h-10 w-10 shrink-0 place-items-center rounded-full text-brand-muted hover:bg-white/5 md:hidden"
+                aria-label="Back to chats"
               >
                 ←
               </button>
-              <Avatar name={activeContact} size={40} online={peerOnline} bot={simulated} src={peerAvatar} />
+              <div className="hidden sm:block">
+                <Avatar name={activeContact} size={40} online={peerOnline} bot={simulated} src={peerAvatar} />
+              </div>
               <div className="min-w-0 flex-1">
                 <div className="truncate font-semibold text-brand-text">{activeContact}</div>
                 <div className="truncate font-mono text-[11px] text-brand-muted">
@@ -1074,61 +1076,114 @@ export function ChatShell({
                     setSearchOpen((v) => !v);
                     setSearchQuery("");
                   }}
-                  className={`pressable rounded-lg px-2 py-1 text-xs font-medium transition ${
+                  className={`pressable hidden h-10 w-10 place-items-center rounded-full text-xs font-medium transition sm:grid ${
                     searchOpen ? "bg-brand-accent/20 text-brand-accent" : "text-brand-faint hover:bg-white/5"
                   }`}
                   title="Search messages"
+                  aria-label="Search messages"
                 >
                   🔍
                 </button>
                 <button
                   onClick={toggleNotify}
-                  className={`pressable rounded-lg px-2 py-1 text-xs font-medium transition ${
+                  className={`pressable hidden h-10 w-10 place-items-center rounded-full text-xs font-medium transition md:grid ${
                     notifyOn ? "bg-brand-accent/20 text-brand-accent" : "text-brand-faint hover:bg-white/5"
                   }`}
                   title={notifyOn ? "Notifications on" : "Enable notifications"}
+                  aria-label={notifyOn ? "Disable notifications" : "Enable notifications"}
                 >
                   {notifyOn ? "🔔" : "🔕"}
                 </button>
                 <button
                   onClick={() => setShowWire((v) => !v)}
-                  className={`pressable rounded-lg px-2 py-1 text-xs font-medium transition ${
+                  className={`pressable hidden h-10 w-10 place-items-center rounded-full text-xs font-medium transition lg:grid ${
                     showWire ? "bg-white/5 text-brand-muted" : "text-brand-faint hover:bg-white/5"
                   }`}
                   title="Toggle the encrypted-wire preview"
+                  aria-label="Toggle encrypted wire preview"
                 >
                   🛡
                 </button>
                 <button
                   onClick={() => setStealth((v) => !v)}
-                  className={`pressable rounded-lg px-2 py-1 text-xs font-medium transition ${
+                  className={`pressable hidden h-10 w-10 place-items-center rounded-full text-xs font-medium transition lg:grid ${
                     stealth ? "bg-brand-accent text-white" : "bg-white/5 text-brand-muted hover:bg-white/10"
                   }`}
                   title="Stealth (Ctrl+Shift+,)"
+                  aria-label={stealth ? "Exit stealth mode" : "Enter stealth mode"}
                 >
                   {stealth ? "🥷" : "🕶"}
                 </button>
                 <button
                   onClick={() => setIde(true)}
-                  className="pressable rounded-lg bg-white/5 px-2 py-1 text-xs font-medium text-brand-muted transition hover:bg-white/10"
+                  className="pressable hidden h-10 w-10 place-items-center rounded-full bg-white/5 text-xs font-medium text-brand-muted transition hover:bg-white/10 lg:grid"
                   title="Panic → IDE (Ctrl+Shift+.)"
+                  aria-label="Open panic mode"
                 >
                   🚨
                 </button>
                 <div className="relative">
                   <button
                     onClick={() => setHeaderMenuOpen((v) => !v)}
-                    className={`pressable rounded-lg px-2 py-1 text-xs font-medium transition ${
+                    className={`pressable grid h-10 w-10 place-items-center rounded-full text-lg font-medium transition ${
                       headerMenuOpen ? "bg-white/10 text-brand-text" : "text-brand-faint hover:bg-white/5"
                     }`}
                     title="More"
+                    aria-label="Chat options"
+                    aria-expanded={headerMenuOpen}
                   >
                     ⋯
                   </button>
                   {headerMenuOpen && (
                     <>
                       <div className="fixed inset-0 z-20" onClick={() => setHeaderMenuOpen(false)} />
-                      <div className="pop-in absolute right-0 top-9 z-30 w-52 overflow-hidden rounded-xl border border-brand-border bg-brand-surface2 shadow-2xl">
+                      <div className="pop-in absolute right-0 top-11 z-30 w-52 overflow-hidden rounded-xl border border-brand-border bg-brand-surface2 shadow-2xl">
+                        <button
+                          onClick={() => {
+                            setHeaderMenuOpen(false);
+                            setSearchOpen(true);
+                            setSearchQuery("");
+                          }}
+                          className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5 sm:hidden"
+                        >
+                          <span>🔍</span> Search messages
+                        </button>
+                        <button
+                          onClick={() => {
+                            setHeaderMenuOpen(false);
+                            void toggleNotify();
+                          }}
+                          className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5 md:hidden"
+                        >
+                          <span>{notifyOn ? "🔔" : "🔕"}</span> {notifyOn ? "Notifications on" : "Enable notifications"}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setHeaderMenuOpen(false);
+                            setShowWire((value) => !value);
+                          }}
+                          className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5 lg:hidden"
+                        >
+                          <span>🛡</span> {showWire ? "Hide encrypted wire" : "Show encrypted wire"}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setHeaderMenuOpen(false);
+                            setStealth((value) => !value);
+                          }}
+                          className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5 lg:hidden"
+                        >
+                          <span>{stealth ? "🥷" : "🕶"}</span> {stealth ? "Exit stealth" : "Stealth mode"}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setHeaderMenuOpen(false);
+                            setIde(true);
+                          }}
+                          className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5 lg:hidden"
+                        >
+                          <span>🚨</span> Panic mode
+                        </button>
                         <button
                           onClick={() => {
                             setHeaderMenuOpen(false);
