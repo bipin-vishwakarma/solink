@@ -175,6 +175,8 @@ export function ChatShell({
   ideRef.current = ide;
   const notifyRef = useRef(notifyOn);
   notifyRef.current = notifyOn;
+  const readReceiptsEnabled = () => localStorage.getItem("solink:readReceipts") !== "0";
+  const accountNotificationsEnabled = () => localStorage.getItem("solink:accountNotify") !== "0";
 
   // restore notification preference
   useEffect(() => {
@@ -510,8 +512,8 @@ export function ChatShell({
         return next;
       });
       if (!isActive && !muted) {
-        playPing();
-        if (notifyRef.current) {
+        if (accountNotificationsEnabled()) playPing();
+        if (notifyRef.current && accountNotificationsEnabled()) {
           showMessageNotification(uname, "sent you a message", stealthRef.current || ideRef.current);
         }
       }
@@ -657,14 +659,14 @@ export function ChatShell({
               (contact) => contact.username.toLowerCase() === activeContact.toLowerCase()
             );
             const muted = !!current?.mutedUntil && current.mutedUntil > Date.now();
-            if (!muted) playPing();
+            if (!muted && accountNotificationsEnabled()) playPing();
             if (!muted) {
               document.title =
                 stealthRef.current || ideRef.current
                   ? DISGUISED_TITLE
                   : "● New message · Solink";
             }
-            if (notifyRef.current && !muted) {
+            if (notifyRef.current && !muted && accountNotificationsEnabled()) {
               // Disguise-aware: hide sender + content while in stealth or panic mode.
               showMessageNotification(activeContact, text, stealthRef.current || ideRef.current);
             }
@@ -927,7 +929,7 @@ export function ChatShell({
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
     const list = messagesByContact[activeContact] || [];
     const unread = list.filter((m) => !m.mine && !markedRef.current.has(m.id)).map((m) => m.id);
-    if (unread.length && transportRef.current?.markRead) {
+    if (unread.length && transportRef.current?.markRead && readReceiptsEnabled()) {
       unread.forEach((id) => markedRef.current.add(id));
       transportRef.current.markRead(unread);
     }
@@ -1249,6 +1251,7 @@ export function ChatShell({
             myName={myName}
             onBack={() => setActiveGroupId(null)}
             onSend={sendGroup}
+            onLoadOlder={() => groupTransportRef.current?.loadOlder() || Promise.resolve(0)}
           />
         ) : !activeContact ? (
           <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden px-6 text-center">

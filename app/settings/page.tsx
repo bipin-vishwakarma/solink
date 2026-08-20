@@ -22,6 +22,13 @@ import {
   type AccountDevice,
 } from "@/lib/deviceRegistry";
 import { PendingDeviceLinks } from "@/components/PendingDeviceLinks";
+import {
+  DEFAULT_ACCOUNT_SETTINGS,
+  cacheAccountSettings,
+  getAccountSettings,
+  saveAccountSettings,
+  type AccountSettings,
+} from "@/lib/accountSettings";
 
 function Row({
   title,
@@ -68,6 +75,8 @@ export default function SettingsPage() {
   const [devices, setDevices] = useState<AccountDevice[]>([]);
   const [devicesBusy, setDevicesBusy] = useState(false);
   const [devicesError, setDevicesError] = useState<string | null>(null);
+  const [accountSettings, setAccountSettings] = useState<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const currentInstallationId =
     typeof window === "undefined" || !id.userId
       ? ""
@@ -80,6 +89,31 @@ export default function SettingsPage() {
     setAutoStealth(localStorage.getItem("solink:autoStealth") === "1");
     setLightTheme(document.documentElement.getAttribute("data-theme") === "light");
   }, []);
+
+  useEffect(() => {
+    if (!supabase || id.mode !== "cloud" || !id.userId) return;
+    void getAccountSettings(supabase).then((settings) => {
+      setAccountSettings(settings);
+      setStealthDefault(settings.stealthDefault);
+      setAutoStealth(settings.autoStealth);
+      setLightTheme(settings.theme === "light");
+      cacheAccountSettings(settings);
+    }).catch(() => setSettingsError("Account settings are temporarily unavailable."));
+  }, [id.mode, id.userId]);
+
+  async function updateAccountSettings(next: AccountSettings) {
+    setAccountSettings(next);
+    cacheAccountSettings(next);
+    if (!supabase || id.mode !== "cloud") return;
+    try {
+      setSettingsError(null);
+      const saved = await saveAccountSettings(supabase, next);
+      setAccountSettings(saved);
+      cacheAccountSettings(saved);
+    } catch {
+      setSettingsError("Could not sync that setting. Try again.");
+    }
+  }
 
   async function refreshDevices() {
     if (!supabase || id.mode !== "cloud" || !id.userId) return;
@@ -138,6 +172,7 @@ export default function SettingsPage() {
     const v = !autoStealth;
     setAutoStealth(v);
     localStorage.setItem("solink:autoStealth", v ? "1" : "0");
+    void updateAccountSettings({ ...accountSettings, autoStealth: v });
   }
 
   function toggleTheme() {
@@ -146,6 +181,7 @@ export default function SettingsPage() {
     localStorage.setItem("solink:theme", v ? "light" : "dark");
     if (v) document.documentElement.setAttribute("data-theme", "light");
     else document.documentElement.removeAttribute("data-theme");
+    void updateAccountSettings({ ...accountSettings, theme: v ? "light" : "dark" });
   }
 
   async function toggleNotify() {
@@ -164,6 +200,7 @@ export default function SettingsPage() {
     const v = !stealthDefault;
     setStealthDefault(v);
     localStorage.setItem("solink:stealthDefault", v ? "1" : "0");
+    void updateAccountSettings({ ...accountSettings, stealthDefault: v });
   }
 
   const [pushStatus, setPushStatus] = useState<string | null>(null);
@@ -216,6 +253,7 @@ export default function SettingsPage() {
       </Link>
 
       <div className="overflow-hidden rounded-2xl border border-brand-border bg-brand-surface/70 divide-y divide-brand-border">
+        {settingsError && <p className="px-4 py-3 text-xs text-amber-300">{settingsError}</p>}
         <Row
           title="Notifications"
           desc={supported ? "Alert me when a message arrives" : "Not supported on this browser"}
@@ -231,6 +269,42 @@ export default function SettingsPage() {
         <Row title="Light theme" desc="Switch between the warm dark and light look">
           <Toggle on={lightTheme} onChange={toggleTheme} />
         </Row>
+        {id.mode === "cloud" && (
+          <>
+            <Row title="Message alerts across devices" desc="Sync whether Solink should alert you; browser permission stays per device">
+              <Toggle
+                on={accountSettings.messageNotifications}
+                onChange={() => void updateAccountSettings({
+                  ...accountSettings,
+                  messageNotifications: !accountSettings.messageNotifications,
+                })}
+              />
+            </Row>
+            <Row title="Read receipts" desc="Let contacts know when you read messages">
+              <Toggle
+                on={accountSettings.readReceipts}
+                onChange={() => void updateAccountSettings({
+                  ...accountSettings,
+                  readReceipts: !accountSettings.readReceipts,
+                })}
+              />
+            </Row>
+            <Row title="Who can see when I'm online" desc="Contacts is the private, familiar default">
+              <select
+                value={accountSettings.presenceVisibility}
+                onChange={(event) => void updateAccountSettings({
+                  ...accountSettings,
+                  presenceVisibility: event.target.value as AccountSettings["presenceVisibility"],
+                })}
+                className="rounded-lg border border-brand-border bg-brand-surface2 px-2 py-1.5 text-xs text-brand-text"
+              >
+                <option value="nobody">Nobody</option>
+                <option value="contacts">Contacts</option>
+                <option value="everyone">Everyone</option>
+              </select>
+            </Row>
+          </>
+        )}
         {id.mode === "cloud" && isPushSupported() && id.userId && (
           <Row title="Background push" desc={pushStatus || "Get notified even when Solink is closed"}>
             <button
