@@ -31,6 +31,7 @@ import {
   sendOutboxRecord,
   type EncryptedOutboxRecord,
 } from "./encryptedOutbox";
+import { loadAccountPresence } from "./accountPresence";
 
 const ATTACH_BUCKET = "attachments";
 const HISTORY_PAGE = 40; // messages loaded per page (initial + each "load older")
@@ -67,6 +68,7 @@ export class SupabaseTransport implements ChatTransport {
   private keyMismatchReported = false;
   private undecryptable = new Set<string>();
   private ownKeyVerified = false;
+  private presenceTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private peerUsername: string,
@@ -157,6 +159,17 @@ export class SupabaseTransport implements ChatTransport {
         }
       })
       .subscribe();
+
+    const refreshPresence = async () => {
+      if (!this.peer) return;
+      const snapshot = await loadAccountPresence(this.sb, this.peer.id);
+      this.events.onPresence?.(
+        snapshot.status === "online",
+        snapshot.status === "offline" ? snapshot.lastSeen : undefined
+      );
+    };
+    void refreshPresence();
+    this.presenceTimer = setInterval(() => void refreshPresence(), 45_000);
 
     // 5b. SECONDARY channel — read receipts + presence. If this fails to subscribe
     //     (e.g. realtime not enabled for message_reads), messaging is UNAFFECTED.
@@ -589,6 +602,10 @@ export class SupabaseTransport implements ChatTransport {
     if (this.reactionsChannel) {
       void this.sb.removeChannel(this.reactionsChannel);
       this.reactionsChannel = null;
+    }
+    if (this.presenceTimer) {
+      clearInterval(this.presenceTimer);
+      this.presenceTimer = null;
     }
   }
 }

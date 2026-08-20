@@ -11,6 +11,7 @@ import { GroupTransport, type GroupContext, type GroupEvents } from "@/lib/group
 import type { InboxActivity } from "@/lib/types";
 import { loadCloudInbox } from "@/lib/cloudInbox";
 import { drainEncryptedOutbox } from "@/lib/encryptedOutbox";
+import { startAccountPresence } from "@/lib/accountPresence";
 import { ChatShell, type TransportFactory } from "./ChatShell";
 import { LogoMark } from "./Logo";
 import { DeviceLinkFlow } from "./DeviceLinkFlow";
@@ -135,6 +136,11 @@ export function CloudApp() {
   useEffect(() => {
     if (phase !== "ready" || !userId) return;
     return startDeviceHeartbeat(sb, userId);
+  }, [phase, sb, userId]);
+
+  useEffect(() => {
+    if (phase !== "ready" || !userId) return;
+    return startAccountPresence(sb, userId);
   }, [phase, sb, userId]);
 
   useEffect(() => {
