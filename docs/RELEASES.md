@@ -6,6 +6,13 @@ release pull request. Already-open web and installed-PWA sessions poll the
 uncached `/version.json` endpoint and offer an Update button when its version
 differs from their bundled version.
 
+## 0.2.1 - 2026-08-21
+
+- Keep mobile chat options above message content by rendering the action sheet
+  outside the animated chat stacking context.
+- Make the mobile action sheet scrollable, safe-area aware, dismissible, and
+  keyboard accessible while preserving the desktop dropdown.
+
 ## 0.2.0 - 2026-08-20
 
 - Sync and enforce account blocks across linked devices.
