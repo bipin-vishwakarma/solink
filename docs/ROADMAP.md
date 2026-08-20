@@ -47,7 +47,9 @@ acceptance criteria.
 
 - [ ] Choose and add an explicit open-source or source-available license.
 - [x] Add automated tests for encryption envelopes and transport deduplication.
-- [ ] Add browser end-to-end tests for two-user DM and group flows.
+- [ ] Add browser end-to-end tests for two-user DM and group flows. The two-user
+      Demo DM and mobile chat-menu regressions are covered; Cloud and group
+      coverage remain.
 - [ ] Cancel stale transport startup work when switching conversations.
 - [x] Add offline/outbox behavior with deterministic retries for DM text and replies.
 - [ ] Extend the offline lifecycle to encrypted attachments and groups.
