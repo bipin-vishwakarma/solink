@@ -166,6 +166,9 @@ export function ChatShell({
   const restoreScrollRef = useRef<number | null>(null); // scrollHeight snapshot for load-older compensation
   const loadingInitialHistoryRef = useRef(false);
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
+  const headerMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const headerMenuRef = useRef<HTMLDivElement>(null);
+  const headerMenuContactRef = useRef<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
 
   // Live refs so the (stable) message handler always sees current UI state.
@@ -182,6 +185,28 @@ export function ChatShell({
   useEffect(() => {
     setNotifyOn(localStorage.getItem("solink:notify") === "1" && notifyPermission() === "granted");
   }, []);
+
+  useEffect(() => {
+    if (!headerMenuOpen) return;
+
+    headerMenuContactRef.current = activeContact;
+    headerMenuRef.current?.focus();
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setHeaderMenuOpen(false);
+      headerMenuButtonRef.current?.focus();
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [headerMenuOpen, activeContact]);
+
+  useEffect(() => {
+    if (headerMenuOpen && headerMenuContactRef.current !== activeContact) {
+      setHeaderMenuOpen(false);
+    }
+  }, [activeContact, headerMenuOpen]);
 
   async function toggleNotify() {
     if (notifyOn) {
@@ -1271,7 +1296,7 @@ export function ChatShell({
           </div>
         ) : (
           <>
-            <header className="flex items-center gap-2 border-b border-brand-border bg-brand-surface/70 px-2.5 pb-2.5 pt-[calc(0.625rem+var(--safe-top))] backdrop-blur sm:gap-3 sm:px-4">
+            <header className="relative z-40 flex items-center gap-2 border-b border-brand-border bg-brand-surface px-2.5 pb-2.5 pt-[calc(0.625rem+var(--safe-top))] sm:gap-3 sm:px-4">
               <button
                 onClick={() => setActiveContact(null)}
                 className="pressable grid h-10 w-10 shrink-0 place-items-center rounded-full text-brand-muted hover:bg-white/5 md:hidden"
@@ -1360,6 +1385,7 @@ export function ChatShell({
                 </button>
                 <div className="relative">
                   <button
+                    ref={headerMenuButtonRef}
                     onClick={() => setHeaderMenuOpen((v) => !v)}
                     className={`pressable grid h-10 w-10 place-items-center rounded-full text-lg font-medium transition ${
                       headerMenuOpen ? "bg-white/10 text-brand-text" : "text-brand-faint hover:bg-white/5"
@@ -1372,8 +1398,32 @@ export function ChatShell({
                   </button>
                   {headerMenuOpen && (
                     <>
-                      <div className="fixed inset-0 z-20" onClick={() => setHeaderMenuOpen(false)} />
-                      <div className="pop-in absolute right-0 top-11 z-30 w-52 overflow-hidden rounded-xl border border-brand-border bg-brand-surface2 shadow-2xl">
+                      <button
+                        type="button"
+                        aria-label="Close chat options"
+                        className="fixed inset-0 z-40 cursor-default bg-black/35 backdrop-blur-[1px] sm:bg-transparent sm:backdrop-blur-none"
+                        onClick={() => setHeaderMenuOpen(false)}
+                      />
+                      <div
+                        ref={headerMenuRef}
+                        role="dialog"
+                        aria-labelledby="chat-options-title"
+                        tabIndex={-1}
+                        className="pop-in fixed inset-x-2 bottom-[calc(0.5rem+var(--safe-bottom))] z-50 max-h-[min(72dvh,34rem)] overflow-y-auto overscroll-contain rounded-2xl border border-brand-border bg-brand-surface2 shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-11 sm:max-h-[calc(100dvh-5rem)] sm:w-56 sm:rounded-xl"
+                      >
+                        <div className="sticky top-0 z-10 flex items-center border-b border-brand-border bg-brand-surface2/95 px-4 py-3 backdrop-blur sm:hidden">
+                          <span id="chat-options-title" className="min-w-0 flex-1 truncate text-sm font-semibold text-brand-text">
+                            Chat options
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setHeaderMenuOpen(false)}
+                            className="pressable grid h-8 w-8 place-items-center rounded-full text-lg text-brand-muted hover:bg-white/5 hover:text-brand-text"
+                            aria-label="Close chat options"
+                          >
+                            ×
+                          </button>
+                        </div>
                         {(() => {
                           const current = contacts.find(
                             (item) => item.username.toLowerCase() === activeContact.toLowerCase()
