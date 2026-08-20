@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { encryptDeviceTransfer, getOrCreateKeyPair } from "@/lib/crypto";
+import { encryptDeviceTransfer, exportPublicKey, getOrCreateKeyPair } from "@/lib/crypto";
 import {
   approveDeviceLink,
   denyDeviceLink,
@@ -35,8 +35,17 @@ export function PendingDeviceLinks({ sb }: { sb: SupabaseClient }) {
     if (!window.confirm(`Approve ${request.name}? Confirm code ${code} is shown on the new device.`)) return;
     try {
       const token = crypto.randomUUID();
+      const accountKeyPair = await getOrCreateKeyPair();
+      const { data: account } = await sb
+        .from("profiles")
+        .select("public_key")
+        .eq("id", (await sb.auth.getUser()).data.user?.id as string)
+        .maybeSingle();
+      if (!account?.public_key || account.public_key !== await exportPublicKey(accountKeyPair.publicKey)) {
+        throw new Error("This device must recover its account encryption key before approving another device.");
+      }
       const envelope = await encryptDeviceTransfer(
-        await getOrCreateKeyPair(),
+        accountKeyPair,
         request.candidate_public_key,
         (await sb.auth.getUser()).data.user?.id as string,
         request.id,

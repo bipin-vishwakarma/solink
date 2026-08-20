@@ -56,6 +56,7 @@ export class SupabaseTransport implements ChatTransport {
   private oldestCreatedAt: string | null = null; // paging cursor for "load older"
   private historyExhausted = false; // no more older messages to load
   private keyMismatchReported = false;
+  private undecryptable = new Set<string>();
 
   constructor(
     private peerUsername: string,
@@ -130,7 +131,9 @@ export class SupabaseTransport implements ChatTransport {
         },
         (payload) => {
           const row = payload.new as MessageRow;
-          if (row.sender_id === this.ctx.userId) return; // we added our own optimistically
+          // Only the tab that optimistically inserted this exact id has seen it.
+          // A sibling device uses the same account sender id and must still show it.
+          if (this.seen.has(row.id)) return;
           void this.deliver(row, true);
         }
       )
@@ -244,9 +247,10 @@ export class SupabaseTransport implements ChatTransport {
   /** Deliver a row exactly once (dedup across realtime + polling + history). */
   private async deliver(row: MessageRow, live: boolean) {
     this.msgIds.add(row.id);
-    if (this.seen.has(row.id)) return;
-    this.seen.add(row.id);
-    await this.emitRow(row, live);
+    if (this.seen.has(row.id) || this.undecryptable.has(row.id)) return;
+    const delivered = await this.emitRow(row, live);
+    if (delivered) this.seen.add(row.id);
+    else this.undecryptable.add(row.id);
   }
 
   /** Fetch recent messages and deliver any the realtime feed missed. */
@@ -260,10 +264,6 @@ export class SupabaseTransport implements ChatTransport {
       .limit(30);
     const rows = ((data as MessageRow[] | null) || []).reverse();
     for (const row of rows) {
-      if (row.sender_id === this.ctx.userId) {
-        this.seen.add(row.id); // our own — already shown optimistically
-        continue;
-      }
       await this.deliver(row, true);
     }
   }
@@ -324,11 +324,15 @@ export class SupabaseTransport implements ChatTransport {
           const ownKeyStatus = await this.verifyOwnPublishedKey();
           if (!this.keyMismatchReported) {
             this.keyMismatchReported = true;
-            this.events.onError?.(
-              ownKeyStatus === "mismatch"
-                ? "This device does not have your account's encryption key. Restore it before messaging."
-                : "A message could not be decrypted. Ask your contact to resend it."
-            );
+            if (ownKeyStatus === "mismatch") {
+              this.events.onError?.(
+                "This device does not have your account's encryption key. Restore it before messaging."
+              );
+            } else {
+              this.events.onWarning?.(
+                "Some older messages used a previous encryption key and cannot be opened. New messaging still works."
+              );
+            }
           }
           return null;
         }
@@ -337,10 +341,10 @@ export class SupabaseTransport implements ChatTransport {
     }
   }
 
-  private async emitRow(row: MessageRow, live: boolean) {
-    if (!this.sharedKey) return;
+  private async emitRow(row: MessageRow, live: boolean): Promise<boolean> {
+    if (!this.sharedKey) return false;
     const text = await this.decryptText(row);
-    if (text === null) return; // truly undecryptable (old message from a lost key)
+    if (text === null) return false; // old message from a lost historical key
     {
       const mine = row.sender_id === this.ctx.userId;
       if (live) this.events.onWireLog(row.ciphertext);
@@ -356,6 +360,7 @@ export class SupabaseTransport implements ChatTransport {
         mine
       );
     }
+    return true;
   }
 
   async send(text: string): Promise<WirePayload | null> {

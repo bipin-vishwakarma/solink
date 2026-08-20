@@ -399,6 +399,10 @@ export function ChatShell({
         setError(msg);
         setConnecting(false);
       },
+      onWarning: (msg) => {
+        flash(msg);
+        setConnecting(false);
+      },
       onTyping: (isTyping) => {
         setPeerTyping(isTyping);
         if (typingClear.current) clearTimeout(typingClear.current);

@@ -64,6 +64,7 @@ export interface TransportEvents {
   onMessage: (text: string, payload: WirePayload, mine: boolean) => void;
   onWireLog: (raw: string) => void; // the ciphertext that crosses the wire
   onError?: (message: string) => void;
+  onWarning?: (message: string) => void; // nonfatal: messaging remains available
   onTyping?: (isTyping: boolean) => void; // peer started/stopped typing
   onRead?: (messageIds: string[]) => void; // peer has read these of OUR messages
   onPresence?: (online: boolean, lastSeen?: number) => void; // peer online/last-seen
