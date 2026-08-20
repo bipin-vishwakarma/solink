@@ -74,6 +74,9 @@ export function ChatShell({
   setConversationPinned,
   setConversationArchived,
   setConversationMuted,
+  loadBlockedUsers,
+  blockUser,
+  unblockUser,
   validateUsername,
   lookupUser,
   fetchProfiles,
@@ -91,6 +94,9 @@ export function ChatShell({
   setConversationPinned?: (conversationId: string, pinned: boolean) => Promise<void>;
   setConversationArchived?: (conversationId: string, archived: boolean) => Promise<void>;
   setConversationMuted?: (conversationId: string, mutedUntil: number | null) => Promise<void>;
+  loadBlockedUsers?: () => Promise<string[]>;
+  blockUser?: (username: string) => Promise<void>;
+  unblockUser?: (username: string) => Promise<void>;
   validateUsername?: (username: string) => Promise<boolean>;
   lookupUser?: (username: string) => Promise<{ username: string; avatarUrl: string | null } | null>;
   fetchProfiles?: (usernames: string[]) => Promise<{ username: string; avatarUrl: string | null }[]>;
@@ -150,6 +156,8 @@ export function ChatShell({
   const contactsRef = useRef(contacts);
   contactsRef.current = contacts;
   const syncedReadRef = useRef<Map<string, string>>(new Map());
+  const blockedReadyRef = useRef(!loadBlockedUsers);
+  const blockedMutationRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingClear = useRef<ReturnType<typeof setTimeout> | null>(null);
   const markedRef = useRef<Set<string>>(new Set());
@@ -190,11 +198,14 @@ export function ChatShell({
 
   const reconcileInbox = useCallback(async () => {
     if (!loadInbox) return;
+    if (!blockedReadyRef.current) return;
     try {
       const serverContacts = await loadInbox();
       setContacts((current) => {
         const local = new Map(current.map((contact) => [contact.username.toLowerCase(), contact]));
-        const synced = serverContacts.map((item) => {
+        const synced = serverContacts.filter(
+          (item) => !blockedRef.current.has(item.username.toLowerCase())
+        ).map((item) => {
           const existing = local.get(item.username.toLowerCase());
           local.delete(item.username.toLowerCase());
           return {
@@ -214,7 +225,12 @@ export function ChatShell({
           };
         });
         // Keep locally searched draft contacts that have no server conversation.
-        return [...synced, ...local.values()];
+        return [
+          ...synced,
+          ...[...local.values()].filter(
+            (contact) => !blockedRef.current.has(contact.username.toLowerCase())
+          ),
+        ];
       });
     } catch {
       // Inbox synchronization is optional and must never block messaging.
@@ -282,17 +298,102 @@ export function ChatShell({
   // Blocked usernames (lowercase), persisted per identity. Blocked people can't
   // start chats with you and their inbox pings are ignored.
   const blockedKey = `solink:blocked:${myName.toLowerCase()}`;
-  const [blocked, setBlocked] = useState<Set<string>>(new Set());
-  const blockedRef = useRef(blocked);
-  blockedRef.current = blocked;
+  const blockedMigratedKey = `${blockedKey}:cloud-migrated`;
+  const blockedPendingKey = `${blockedKey}:cloud-pending`;
+  const blockedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
+    let cancelled = false;
+    let local = new Set<string>();
     try {
       const saved = JSON.parse(localStorage.getItem(blockedKey) || "[]");
-      if (Array.isArray(saved)) setBlocked(new Set(saved.map((u: string) => u.toLowerCase())));
+      if (Array.isArray(saved)) {
+        local = new Set(saved.map((u: string) => u.toLowerCase()));
+        blockedRef.current = local;
+      }
     } catch {
       /* ignore */
     }
-  }, [blockedKey]);
+    if (loadBlockedUsers) {
+      const fetchBlockedUsers = loadBlockedUsers;
+      void (async () => {
+        async function loadStableServerBlocks(): Promise<Set<string>> {
+          while (true) {
+            const version = blockedMutationRef.current;
+            const serverUsernames = await fetchBlockedUsers();
+            if (cancelled || version === blockedMutationRef.current) {
+              return new Set(serverUsernames.map((username) => username.toLowerCase()));
+            }
+          }
+        }
+
+        let server = await loadStableServerBlocks();
+        if (cancelled) return;
+        const shouldImport = localStorage.getItem(blockedMigratedKey) !== "1";
+        let pending: string[] = [];
+        if (shouldImport) {
+          const savedPending = localStorage.getItem(blockedPendingKey);
+          if (savedPending === null) {
+            pending = [...local];
+            localStorage.setItem(blockedPendingKey, JSON.stringify(pending));
+          } else {
+            try {
+              const parsed = JSON.parse(savedPending);
+              if (Array.isArray(parsed)) {
+                pending = parsed.filter((username): username is string => typeof username === "string");
+              }
+            } catch {
+              pending = [];
+            }
+          }
+        }
+        const legacyOnly = shouldImport
+          ? pending.filter((username) => !server.has(username))
+          : [];
+        // Import legacy local blocks once. A failed import stays blocked on
+        // this device and will be retried on a later app load.
+        if (blockUser) {
+          const imports = await Promise.allSettled(
+            legacyOnly.map((username) => blockUser(username))
+          );
+          imports.forEach((result, index) => {
+            if (result.status === "fulfilled") server.add(legacyOnly[index]);
+          });
+        }
+        if (cancelled) return;
+        server = await loadStableServerBlocks();
+        if (cancelled) return;
+        const failedLegacy = legacyOnly.filter((username) => !server.has(username));
+        if (shouldImport) {
+          if (failedLegacy.length === 0) {
+            localStorage.setItem(blockedMigratedKey, "1");
+            localStorage.removeItem(blockedPendingKey);
+          } else {
+            localStorage.setItem(blockedPendingKey, JSON.stringify(failedLegacy));
+          }
+        }
+        const effective = shouldImport
+          ? new Set([...server, ...failedLegacy])
+          : server;
+        blockedRef.current = effective;
+        localStorage.setItem(blockedKey, JSON.stringify([...effective]));
+        blockedReadyRef.current = true;
+        setContacts((current) => current.filter(
+          (contact) => !effective.has(contact.username.toLowerCase())
+        ));
+        void reconcileInbox();
+      })()
+        .catch(() => {
+          // Local blocking remains available when Cloud synchronization fails.
+          blockedReadyRef.current = true;
+          void reconcileInbox();
+        });
+    } else {
+      blockedReadyRef.current = true;
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [blockUser, blockedKey, blockedMigratedKey, blockedPendingKey, loadBlockedUsers, reconcileInbox]);
   const persistBlocked = useCallback(
     (set: Set<string>) => localStorage.setItem(blockedKey, JSON.stringify([...set])),
     [blockedKey]
@@ -315,22 +416,34 @@ export function ChatShell({
   }
 
   // Block: remove the chat and refuse future contact until unblocked.
-  function blockContact(username: string) {
-    setBlocked((prev) => {
-      const next = new Set(prev).add(username.toLowerCase());
-      persistBlocked(next);
-      return next;
-    });
+  async function blockContact(username: string) {
+    try {
+      if (blockUser) await blockUser(username);
+    } catch {
+      flash("Couldn't block this user. Try again.");
+      return;
+    }
+    blockedMutationRef.current += 1;
+    const next = new Set(blockedRef.current).add(username.toLowerCase());
+    blockedRef.current = next;
+    persistBlocked(next);
     removeContact(username);
+    flash(`Blocked @${username}`);
   }
 
-  function unblock(username: string) {
-    setBlocked((prev) => {
-      const next = new Set(prev);
-      next.delete(username.toLowerCase());
-      persistBlocked(next);
-      return next;
-    });
+  async function unblock(username: string): Promise<boolean> {
+    try {
+      if (unblockUser) await unblockUser(username);
+    } catch {
+      flash("Couldn't unblock this user. Try again.");
+      return false;
+    }
+    blockedMutationRef.current += 1;
+    const next = new Set(blockedRef.current);
+    next.delete(username.toLowerCase());
+    blockedRef.current = next;
+    persistBlocked(next);
+    return true;
   }
 
   async function updateActiveConversation(
@@ -1041,9 +1154,13 @@ export function ChatShell({
     const clean = username.trim();
     if (!clean) return null;
     if (clean.toLowerCase() === myName.toLowerCase()) return "That's your own username";
-    // Re-searching a blocked user unblocks them (discoverable, no settings screen needed).
-    if (blocked.has(clean.toLowerCase())) {
-      unblock(clean);
+    // A blocked user can only be restored after an explicit confirmation.
+    if (blockedRef.current.has(clean.toLowerCase())) {
+      if (loadBlockedUsers && !blockedReadyRef.current) {
+        return "Privacy settings are still syncing. Try again.";
+      }
+      if (!confirm(`Unblock @${clean} and allow messages again?`)) return `@${clean} is blocked`;
+      if (!(await unblock(clean))) return `Couldn't unblock @${clean}`;
       flash(`Unblocked @${clean}`);
     }
     // already a contact → just open it
@@ -1328,21 +1445,23 @@ export function ChatShell({
                         >
                           <span>🚨</span> Panic mode
                         </button>
-                        <button
-                          onClick={() => {
-                            setHeaderMenuOpen(false);
-                            if (confirm(`Remove your chat with @${activeContact}? Your local history is cleared.`))
-                              removeContact(activeContact);
-                          }}
-                          className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
-                        >
-                          <span>🗑️</span> Remove chat
-                        </button>
+                        {!setConversationArchived && (
+                          <button
+                            onClick={() => {
+                              setHeaderMenuOpen(false);
+                              if (confirm(`Remove your chat with @${activeContact}? Your local history is cleared.`))
+                                removeContact(activeContact);
+                            }}
+                            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
+                          >
+                            <span>🗑️</span> Remove local chat
+                          </button>
+                        )}
                         <button
                           onClick={() => {
                             setHeaderMenuOpen(false);
                             if (confirm(`Block @${activeContact}? They won't be able to message you.`))
-                              blockContact(activeContact);
+                              void blockContact(activeContact);
                           }}
                           className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-red-400 hover:bg-white/5"
                         >

@@ -225,6 +225,36 @@ export function CloudApp() {
     if (error) throw error;
   }, [sb]);
 
+  const loadBlockedUsers = useCallback(async () => {
+    const { data, error } = await sb.rpc("list_my_blocks");
+    if (error) throw error;
+    return ((data as { blocked_username: string }[] | null) || []).map(
+      (row) => row.blocked_username
+    );
+  }, [sb]);
+
+  const resolveProfileId = useCallback(async (username: string) => {
+    const { data, error } = await sb
+      .from("profiles")
+      .select("id")
+      .ilike("username", username)
+      .maybeSingle();
+    if (error || !data?.id) throw error || new Error("User unavailable");
+    return data.id as string;
+  }, [sb]);
+
+  const blockUser = useCallback(async (username: string) => {
+    const targetUser = await resolveProfileId(username);
+    const { error } = await sb.rpc("block_user", { target_user: targetUser });
+    if (error) throw error;
+  }, [resolveProfileId, sb]);
+
+  const unblockUser = useCallback(async (username: string) => {
+    const targetUser = await resolveProfileId(username);
+    const { error } = await sb.rpc("unblock_user", { target_user: targetUser });
+    if (error) throw error;
+  }, [resolveProfileId, sb]);
+
   const makeGroupTransport = useCallback(
     (groupId: string, events: GroupEvents) => {
       const ctx: GroupContext = {
@@ -495,6 +525,9 @@ export function CloudApp() {
       setConversationPinned={setConversationPinned}
       setConversationArchived={setConversationArchived}
       setConversationMuted={setConversationMuted}
+      loadBlockedUsers={loadBlockedUsers}
+      blockUser={blockUser}
+      unblockUser={unblockUser}
       validateUsername={validateUsername}
       lookupUser={lookupUser}
       fetchProfiles={fetchProfiles}
