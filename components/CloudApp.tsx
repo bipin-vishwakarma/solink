@@ -10,6 +10,7 @@ import { SupabaseTransport, type CloudContext } from "@/lib/supabaseTransport";
 import { GroupTransport, type GroupContext, type GroupEvents } from "@/lib/groupTransport";
 import type { InboxActivity } from "@/lib/types";
 import { loadCloudInbox } from "@/lib/cloudInbox";
+import { drainEncryptedOutbox } from "@/lib/encryptedOutbox";
 import { ChatShell, type TransportFactory } from "./ChatShell";
 import { LogoMark } from "./Logo";
 import { DeviceLinkFlow } from "./DeviceLinkFlow";
@@ -134,6 +135,25 @@ export function CloudApp() {
   useEffect(() => {
     if (phase !== "ready" || !userId) return;
     return startDeviceHeartbeat(sb, userId);
+  }, [phase, sb, userId]);
+
+  useEffect(() => {
+    if (phase !== "ready" || !userId) return;
+    const drain = () => {
+      if (navigator.onLine) void drainEncryptedOutbox(sb, userId).catch(() => {});
+    };
+    drain();
+    const timer = window.setInterval(drain, 15_000);
+    const visible = () => {
+      if (document.visibilityState === "visible") drain();
+    };
+    window.addEventListener("online", drain);
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("online", drain);
+      document.removeEventListener("visibilitychange", visible);
+    };
   }, [phase, sb, userId]);
 
   const makeTransport = useCallback<TransportFactory>(

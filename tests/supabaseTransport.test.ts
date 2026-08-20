@@ -1,5 +1,20 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
+
+const outboxRecords = vi.hoisted(() => new Map<string, unknown>());
+vi.mock("../lib/encryptedOutbox", () => ({
+  getOutboxRecord: vi.fn(async (id: string) => outboxRecords.get(id)),
+  saveOutboxRecord: vi.fn(async (record: { id: string }) => { outboxRecords.set(record.id, record); }),
+  removeOutboxRecord: vi.fn(async (id: string) => { outboxRecords.delete(id); }),
+  sendOutboxRecord: vi.fn(async (sb: SupabaseClient, record: {
+    id: string; conversationId: string; ciphertext: string; iv: string;
+  }) => sb.rpc("send_message_once", {
+    message_id: record.id,
+    target_conversation: record.conversationId,
+    encrypted_ciphertext: record.ciphertext,
+    encrypted_iv: record.iv,
+  })),
+}));
 import {
   decryptMessage,
   deriveSharedKey,
@@ -356,7 +371,17 @@ describe("SupabaseTransport", () => {
 
         throw new Error("Unexpected table: " + table);
       },
-      async rpc() {
+      async rpc(name: string, args?: Record<string, string>) {
+        if (name === "send_message_once") {
+          insertedRow = {
+            ciphertext: args?.encrypted_ciphertext || "",
+            iv: args?.encrypted_iv || "",
+          };
+          return {
+            data: { id: args?.message_id || "message-id", created_at: new Date().toISOString() },
+            error: null,
+          };
+        }
         return { data: "conversation-id", error: null };
       },
       channel() {
@@ -386,7 +411,7 @@ describe("SupabaseTransport", () => {
     const sent = await transport.send("rotated-key-message");
     transport.destroy();
 
-    expect(sent).not.toBeNull();
+    expect(sent.state).toBe("sent");
     expect(profileLookupCount).toBeGreaterThanOrEqual(3);
     expect(publishedSenderKey).toBe(senderPublicKey);
     expect(insertedRow).not.toBeNull();
@@ -482,7 +507,13 @@ describe("SupabaseTransport", () => {
         }
         throw new Error("Unexpected table: " + table);
       },
-      async rpc() { return { data: "conversation-id", error: null }; },
+      async rpc(name: string) {
+        if (name === "send_message_once") {
+          insert();
+          return { data: null, error: { message: "must not send" } };
+        }
+        return { data: "conversation-id", error: null };
+      },
       channel() { return fakeChannel; },
       async removeChannel() { return "ok"; },
     } as unknown as SupabaseClient;
@@ -503,7 +534,7 @@ describe("SupabaseTransport", () => {
     const sent = await transport.send("must not be encrypted with the wrong key");
     transport.destroy();
 
-    expect(sent).toBeNull();
+    expect(sent.state).toBe("failed");
     expect(update).not.toHaveBeenCalled();
     expect(insert).not.toHaveBeenCalled();
     expect(events.onError).toHaveBeenCalledWith(

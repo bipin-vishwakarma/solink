@@ -26,7 +26,7 @@ export interface ChatMessage {
   replyTo?: ReplyRef;
   attachment?: AttachmentMeta;
   read?: boolean; // for our own messages: has the peer read it? (blue ticks)
-  status?: "sending" | "failed"; // our own messages: delivery state (absent = sent)
+  status?: "sending" | "queued" | "failed"; // our own messages: delivery state (absent = sent)
 }
 
 // What actually travels over the wire — no plaintext, ever.
@@ -76,7 +76,7 @@ export interface TransportEvents {
 // Common shape implemented by both the local (demo) and Supabase (cloud) transports.
 export interface ChatTransport {
   start: () => Promise<void>;
-  send: (text: string) => Promise<WirePayload | null>;
+  send: (text: string, messageId?: string) => Promise<SendResult>;
   sendTyping?: (isTyping: boolean) => void;
   sendAttachment?: (
     bytes: ArrayBuffer,
@@ -90,3 +90,8 @@ export interface ChatTransport {
   loadOlder?: () => Promise<number>; // page in older history; returns how many were loaded
   destroy: () => void;
 }
+
+export type SendResult =
+  | { state: "sent"; payload: WirePayload }
+  | { state: "queued"; id: string; ts: number }
+  | { state: "failed"; id: string };

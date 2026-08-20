@@ -22,6 +22,7 @@ import type {
   AttachmentMeta,
   AttachmentRef,
   ChatTransport,
+  SendResult,
   TransportEvents,
   WirePayload,
 } from "./types";
@@ -177,11 +178,12 @@ export class LocalTransport implements ChatTransport {
     this.events.onPresence?.(true);
   }
 
-  async send(text: string): Promise<WirePayload | null> {
-    if (!this.sharedKey) return null;
+  async send(text: string, messageId?: string): Promise<SendResult> {
+    const id = messageId || crypto.randomUUID();
+    if (!this.sharedKey) return { state: "failed", id };
     const enc = await encryptMessage(this.sharedKey, text);
     const payload: WirePayload = {
-      id: crypto.randomUUID(),
+      id,
       ciphertext: enc.ciphertext,
       iv: enc.iv,
       ts: Date.now(),
@@ -196,7 +198,7 @@ export class LocalTransport implements ChatTransport {
     } else {
       this.post({ kind: "msg", from: this.myPeerId, ...payload });
     }
-    return payload;
+    return { state: "sent", payload };
   }
 
   markRead(ids: string[]) {
@@ -222,9 +224,9 @@ export class LocalTransport implements ChatTransport {
     if (!this.sharedKey) return null;
     const encrypted = await encryptBytes(this.sharedKey, bytes);
     const attachment: AttachmentMeta = { ...meta, ref: { data: bufToB64(encrypted) } };
-    const payload = await this.send(encodeMessage(caption, undefined, attachment));
-    if (!payload) return null;
-    return { payload, attachment };
+    const result = await this.send(encodeMessage(caption, undefined, attachment));
+    if (result.state !== "sent") return null;
+    return { payload: result.payload, attachment };
   }
 
   async resolveAttachment(ref: AttachmentRef): Promise<Blob | null> {
