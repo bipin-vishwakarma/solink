@@ -70,6 +70,10 @@ export function ChatShell({
   makeTransport,
   makeInboxSubscription,
   loadInbox,
+  markConversationRead,
+  setConversationPinned,
+  setConversationArchived,
+  setConversationMuted,
   validateUsername,
   lookupUser,
   fetchProfiles,
@@ -82,7 +86,11 @@ export function ChatShell({
   myAvatarUrl?: string | null;
   makeTransport: TransportFactory;
   makeInboxSubscription?: (onActivity: (a: InboxActivity) => void) => () => void;
-  loadInbox?: () => Promise<Array<{ conversationId: string; username: string; avatarUrl: string | null; lastText: string; lastActivity: number }>>;
+  loadInbox?: () => Promise<Array<{ conversationId: string; username: string; avatarUrl: string | null; lastText: string; lastActivity: number; unread: number; archived: boolean; pinned: boolean; mutedUntil: number | null }>>;
+  markConversationRead?: (conversationId: string, throughMessageId: string) => Promise<void>;
+  setConversationPinned?: (conversationId: string, pinned: boolean) => Promise<void>;
+  setConversationArchived?: (conversationId: string, archived: boolean) => Promise<void>;
+  setConversationMuted?: (conversationId: string, mutedUntil: number | null) => Promise<void>;
   validateUsername?: (username: string) => Promise<boolean>;
   lookupUser?: (username: string) => Promise<{ username: string; avatarUrl: string | null } | null>;
   fetchProfiles?: (usernames: string[]) => Promise<{ username: string; avatarUrl: string | null }[]>;
@@ -139,6 +147,9 @@ export function ChatShell({
   inboxRef.current = makeInboxSubscription;
   const activeContactRef = useRef(activeContact);
   activeContactRef.current = activeContact;
+  const contactsRef = useRef(contacts);
+  contactsRef.current = contacts;
+  const syncedReadRef = useRef<Map<string, string>>(new Map());
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingClear = useRef<ReturnType<typeof setTimeout> | null>(null);
   const markedRef = useRef<Set<string>>(new Set());
@@ -188,8 +199,13 @@ export function ChatShell({
           local.delete(item.username.toLowerCase());
           return {
             ...existing,
+            conversationId: item.conversationId,
             username: item.username,
             avatarUrl: item.avatarUrl,
+            unread: item.unread,
+            archived: item.archived,
+            pinned: item.pinned,
+            mutedUntil: item.mutedUntil,
             lastText:
               (existing?.lastActivity || 0) > item.lastActivity
                 ? existing?.lastText
@@ -317,6 +333,35 @@ export function ChatShell({
     });
   }
 
+  async function updateActiveConversation(
+    operation: "pin" | "archive" | "mute",
+    value: boolean | number | null
+  ) {
+    if (!activeContact) return;
+    const contact = contacts.find(
+      (item) => item.username.toLowerCase() === activeContact.toLowerCase()
+    );
+    if (!contact?.conversationId) {
+      flash("This chat is still syncing. Try again in a moment.");
+      return;
+    }
+    try {
+      if (operation === "pin" && setConversationPinned) {
+        await setConversationPinned(contact.conversationId, value as boolean);
+      } else if (operation === "archive" && setConversationArchived) {
+        await setConversationArchived(contact.conversationId, value as boolean);
+        if (value) setActiveContact(null);
+      } else if (operation === "mute" && setConversationMuted) {
+        await setConversationMuted(contact.conversationId, value as number | null);
+      } else {
+        return;
+      }
+      await reconcileInbox();
+    } catch {
+      flash("Couldn't update this chat. Try again.");
+    }
+  }
+
   // LIVE INBOX: a global listener for messages in ANY of my conversations — drives
   // recent-on-top sorting, unread badges, and cross-chat notifications. Runs on a
   // separate channel from the chat transport, so it can never affect message delivery.
@@ -330,6 +375,10 @@ export function ChatShell({
       const uname = a.fromUsername;
       if (blockedRef.current.has(uname.toLowerCase())) return; // ignore blocked senders
       const isActive = uname.toLowerCase() === (activeContactRef.current || "").toLowerCase();
+      const source = contactsRef.current.find(
+        (contact) => contact.username.toLowerCase() === uname.toLowerCase()
+      );
+      const muted = !!source?.mutedUntil && source.mutedUntil > Date.now();
       setContacts((prev) => {
         const exists = prev.some((c) => c.username.toLowerCase() === uname.toLowerCase());
         const next = exists
@@ -347,7 +396,7 @@ export function ChatShell({
         persistContacts(next);
         return next;
       });
-      if (!isActive) {
+      if (!isActive && !muted) {
         playPing();
         if (notifyRef.current) {
           showMessageNotification(uname, "sent you a message", stealthRef.current || ideRef.current);
@@ -367,7 +416,42 @@ export function ChatShell({
         ? prev.map((c) => (c.username === activeContact ? { ...c, unread: 0 } : c))
         : prev
     );
-  }, [activeContact]);
+    const contact = contacts.find(
+      (item) => item.username.toLowerCase() === activeContact.toLowerCase()
+    );
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    const list = messagesByContact[activeContact] || [];
+    const latestIncoming = [...list].reverse().find((message) => !message.mine);
+    if (contact?.conversationId && latestIncoming && markConversationRead) {
+      const conversationId = contact.conversationId;
+      if (connecting) return;
+      if (syncedReadRef.current.get(conversationId) === latestIncoming.id) return;
+      syncedReadRef.current.set(conversationId, latestIncoming.id);
+      void markConversationRead(conversationId, latestIncoming.id)
+        .then(() => reconcileInbox())
+        .catch(() => syncedReadRef.current.delete(conversationId));
+    }
+  }, [activeContact, connecting, contacts, markConversationRead, messagesByContact, reconcileInbox]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || !activeContact) return;
+      const contact = contactsRef.current.find(
+        (item) => item.username.toLowerCase() === activeContact.toLowerCase()
+      );
+      const list = messagesByContact[activeContact] || [];
+      const latestIncoming = [...list].reverse().find((message) => !message.mine);
+      if (!contact?.conversationId || !latestIncoming || !markConversationRead) return;
+      const conversationId = contact.conversationId;
+      if (syncedReadRef.current.get(conversationId) === latestIncoming.id) return;
+      syncedReadRef.current.set(conversationId, latestIncoming.id);
+      void markConversationRead(conversationId, latestIncoming.id)
+        .then(() => reconcileInbox())
+        .catch(() => syncedReadRef.current.delete(conversationId));
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [activeContact, markConversationRead, messagesByContact, reconcileInbox]);
 
   // Consume a shared contact link once, then remove the username from browser
   // history so private contact metadata is not retained in the address bar.
@@ -443,12 +527,18 @@ export function ChatShell({
           );
           // Notify when the tab isn't focused.
           if (typeof document !== "undefined" && document.hidden) {
-            playPing();
-            document.title =
-              stealthRef.current || ideRef.current
-                ? DISGUISED_TITLE
-                : "● New message · Solink";
-            if (notifyRef.current) {
+            const current = contactsRef.current.find(
+              (contact) => contact.username.toLowerCase() === activeContact.toLowerCase()
+            );
+            const muted = !!current?.mutedUntil && current.mutedUntil > Date.now();
+            if (!muted) playPing();
+            if (!muted) {
+              document.title =
+                stealthRef.current || ideRef.current
+                  ? DISGUISED_TITLE
+                  : "● New message · Solink";
+            }
+            if (notifyRef.current && !muted) {
               // Disguise-aware: hide sender + content while in stealth or panic mode.
               showMessageNotification(activeContact, text, stealthRef.current || ideRef.current);
             }
@@ -1001,7 +1091,9 @@ export function ChatShell({
       <Sidebar
         myName={myName}
         myAvatarUrl={myAvatarUrl}
-        contacts={[...contacts].sort((a, b) => (b.lastActivity || 0) - (a.lastActivity || 0))}
+        contacts={[...contacts].sort((a, b) =>
+          Number(!!b.pinned) - Number(!!a.pinned) || (b.lastActivity || 0) - (a.lastActivity || 0)
+        )}
         activeContact={activeContact}
         onSelect={setActiveContact}
         onConnect={connectTo}
@@ -1149,6 +1241,47 @@ export function ChatShell({
                     <>
                       <div className="fixed inset-0 z-20" onClick={() => setHeaderMenuOpen(false)} />
                       <div className="pop-in absolute right-0 top-11 z-30 w-52 overflow-hidden rounded-xl border border-brand-border bg-brand-surface2 shadow-2xl">
+                        {(() => {
+                          const current = contacts.find(
+                            (item) => item.username.toLowerCase() === activeContact.toLowerCase()
+                          );
+                          if (!current?.conversationId) return null;
+                          const muted = !!current.mutedUntil && current.mutedUntil > Date.now();
+                          return (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setHeaderMenuOpen(false);
+                                  void updateActiveConversation("pin", !current.pinned);
+                                }}
+                                className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
+                              >
+                                <span>📌</span> {current.pinned ? "Unpin chat" : "Pin chat"}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setHeaderMenuOpen(false);
+                                  void updateActiveConversation(
+                                    "mute",
+                                    muted ? null : Date.now() + 1000 * 60 * 60 * 24 * 365 * 10
+                                  );
+                                }}
+                                className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
+                              >
+                                <span>🔕</span> {muted ? "Unmute chat" : "Mute chat"}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setHeaderMenuOpen(false);
+                                  void updateActiveConversation("archive", !current.archived);
+                                }}
+                                className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
+                              >
+                                <span>🗄️</span> {current.archived ? "Unarchive chat" : "Archive chat"}
+                              </button>
+                            </>
+                          );
+                        })()}
                         <button
                           onClick={() => {
                             setHeaderMenuOpen(false);

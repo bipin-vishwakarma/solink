@@ -11,6 +11,10 @@ export interface Contact {
   unread?: number;
   lastActivity?: number; // ms timestamp of the latest message, for recent-on-top sorting
   avatarUrl?: string | null; // the peer's profile photo, if any
+  conversationId?: string;
+  archived?: boolean;
+  pinned?: boolean;
+  mutedUntil?: number | null;
 }
 
 export function Sidebar({
@@ -44,15 +48,19 @@ export function Sidebar({
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   // Live search preview of the looked-up user (avatar + canonical name).
   const [preview, setPreview] = useState<
     { status: "loading" } | { status: "found"; username: string; avatarUrl: string | null } | { status: "none" } | null
   >(null);
 
   const trimmed = query.trim();
+  const visibleContacts = contacts.filter((contact) => showArchived ? contact.archived : !contact.archived);
   const filtered = trimmed
-    ? contacts.filter((c) => c.username.toLowerCase().includes(trimmed.toLowerCase()))
-    : contacts;
+    ? visibleContacts.filter((c) => c.username.toLowerCase().includes(trimmed.toLowerCase()))
+    : visibleContacts;
+  const archivedCount = contacts.filter((contact) => contact.archived).length;
+
   const exactExists = contacts.some(
     (c) => c.username.toLowerCase() === trimmed.toLowerCase()
   );
@@ -214,8 +222,17 @@ export function Sidebar({
           </>
         )}
         <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-brand-faint">
-          Chats
+          {showArchived ? "Archived" : "Chats"}
         </div>
+        {archivedCount > 0 && (
+          <button
+            onClick={() => setShowArchived((value) => !value)}
+            className="mb-1 flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs text-brand-muted transition hover:bg-white/5 hover:text-brand-text"
+          >
+            <span>{showArchived ? "← Back to chats" : "🗄️ Archived chats"}</span>
+            {!showArchived && <span>{archivedCount}</span>}
+          </button>
+        )}
         {filtered.length === 0 && (
           <div className="px-3 py-6 text-center text-xs text-brand-faint">
             No chats yet.<br />Search a username above to connect.
@@ -233,7 +250,13 @@ export function Sidebar({
             >
               <Avatar name={c.username} size={40} src={c.avatarUrl} />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium text-brand-text">{c.username}</div>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <div className="truncate text-sm font-medium text-brand-text">{c.username}</div>
+                  {c.pinned && <span className="shrink-0 text-[10px] text-brand-faint" title="Pinned">📌</span>}
+                  {c.mutedUntil && (
+                    <span className="shrink-0 text-[10px] text-brand-faint" title="Muted">🔕</span>
+                  )}
+                </div>
                 <div className={`truncate text-xs ${c.unread ? "font-medium text-brand-text" : "text-brand-muted"}`}>
                   {c.lastText || "No messages yet"}
                 </div>
