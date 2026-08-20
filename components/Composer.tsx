@@ -120,7 +120,7 @@ export function Composer({
   }, []);
 
   return (
-    <div className="relative border-t border-brand-border bg-brand-surface/70 px-3 pt-3 pb-[calc(0.75rem+var(--safe-bottom))] backdrop-blur">
+    <div className="relative border-t border-brand-border bg-brand-surface/70 px-2 pt-2 pb-[calc(0.5rem+var(--safe-bottom))] backdrop-blur sm:px-3 sm:pt-3 sm:pb-[calc(0.75rem+var(--safe-bottom))]">
       {showEmoji && (
         <div className="absolute bottom-[68px] left-2 z-20">
           <EmojiPicker
@@ -170,10 +170,10 @@ export function Composer({
           </button>
         </div>
       ) : (
-        <div className="flex items-end gap-1">
+        <div className="flex items-end gap-0.5 sm:gap-1">
           <button
             onClick={() => setShowEmoji((v) => !v)}
-            className={`pressable grid h-11 w-9 shrink-0 place-items-center rounded-full text-xl transition ${
+            className={`pressable grid h-11 w-10 shrink-0 place-items-center rounded-full text-xl transition sm:w-9 ${
               showEmoji ? "text-brand-accent" : "text-brand-muted hover:text-brand-text"
             }`}
             aria-label="Emoji"
@@ -206,7 +206,7 @@ export function Composer({
               )}
               <button
                 onClick={() => setShowAttachMenu((v) => !v)}
-                className={`pressable grid h-11 w-9 shrink-0 place-items-center rounded-full transition ${
+                className={`pressable grid h-11 w-10 shrink-0 place-items-center rounded-full transition sm:w-9 ${
                   showAttachMenu ? "text-brand-accent" : "text-brand-muted hover:text-brand-text"
                 }`}
                 aria-label="Attach"
@@ -233,7 +233,7 @@ export function Composer({
               }
             }}
             placeholder="Type a message"
-            className="max-h-[140px] min-h-[44px] flex-1 resize-none rounded-2xl border border-brand-border bg-black/25 px-4 py-2.5 text-brand-text outline-none focus:border-brand-accent disabled:opacity-50"
+            className="min-w-0 max-h-[140px] min-h-[44px] flex-1 resize-none rounded-2xl border border-brand-border bg-black/25 px-3 py-2.5 text-brand-text outline-none focus:border-brand-accent disabled:opacity-50 sm:px-4"
           />
 
           {text.trim() || !onAttach ? (
