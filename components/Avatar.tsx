@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 // Deterministic avatar: a warm gradient + initials derived from the name.
 
 const GRADIENTS = [
@@ -38,15 +40,26 @@ export function Avatar({
   bot?: boolean;
   src?: string | null;
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
   const [from, to] = GRADIENTS[hash(name || "?") % GRADIENTS.length];
   const dot = Math.max(9, Math.round(size * 0.28));
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [src]);
+
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
-      {src ? (
+      {src && !imageFailed ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={src}
-          alt={name}
+          alt={`${name}'s profile picture`}
+          width={size}
+          height={size}
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={() => setImageFailed(true)}
           className="h-full w-full rounded-full object-cover"
           style={{ width: size, height: size }}
         />
@@ -63,6 +76,7 @@ export function Avatar({
       )}
       {online && (
         <span
+          aria-hidden="true"
           className="absolute bottom-0 right-0 rounded-full border-2 border-brand-surface bg-brand-online"
           style={{ width: dot, height: dot }}
         />

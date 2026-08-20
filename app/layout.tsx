@@ -4,8 +4,7 @@ import { ViewportManager } from "@/components/ViewportManager";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://solink-omega.vercel.app"),
-  // Browser tab stays disguised as an editor; social/share cards use the real brand.
-  title: "index.ts — Visual Studio Code",
+  title: "Solink — Private Messenger",
   description: "End-to-end encrypted chat, disguised as code.",
   applicationName: "Solink",
   icons: {
@@ -37,7 +36,6 @@ export const viewport: Viewport = {
   themeColor: "#17150f",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
   viewportFit: "cover",
   // Android: shrink the layout when the on-screen keyboard opens so the
   // composer reflows above it (iOS is handled by ViewportManager).

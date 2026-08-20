@@ -195,11 +195,23 @@ export default function SettingsPage() {
         href="/profile"
         className="mb-4 flex items-center gap-3 rounded-2xl border border-brand-border bg-brand-surface/70 p-4 transition hover:bg-brand-surface"
       >
-        <Avatar name={id.username || "?"} size={48} online />
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold text-brand-text">{id.username || "…"}</div>
-          <div className="text-xs text-brand-muted">View profile · encryption key</div>
-        </div>
+        {id.loading ? (
+          <>
+            <div className="h-12 w-12 shrink-0 animate-pulse rounded-full bg-white/10" />
+            <div className="min-w-0 flex-1 space-y-2" aria-label="Loading profile">
+              <div className="h-4 w-24 animate-pulse rounded bg-white/10" />
+              <div className="h-3 w-40 animate-pulse rounded bg-white/5" />
+            </div>
+          </>
+        ) : (
+          <>
+            <Avatar name={id.username || "?"} size={48} online src={id.avatarUrl} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-semibold text-brand-text">{id.username || "…"}</div>
+              <div className="text-xs text-brand-muted">View profile · encryption key</div>
+            </div>
+          </>
+        )}
         <span className="text-brand-faint">›</span>
       </Link>
 

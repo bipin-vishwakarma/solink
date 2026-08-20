@@ -20,6 +20,7 @@ export default function ProfilePage() {
   const id = useIdentity();
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [avatarMessage, setAvatarMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [cropFile, setCropFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -149,16 +150,44 @@ export default function ProfilePage() {
   async function uploadAvatar(blob: Blob) {
     if (!id.userId || !supabase) return;
     setUploading(true);
+    setAvatarMessage(null);
+    let uploadedPath: string | null = null;
     try {
       const path = `${id.userId}/${Date.now()}.jpg`;
-      const { error } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from("avatars")
         .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
-      if (error) return;
+      if (uploadError) throw uploadError;
+      uploadedPath = path;
       const { data } = supabase.storage.from("avatars").getPublicUrl(path);
       const url = data.publicUrl;
-      await supabase.from("profiles").update({ avatar_url: url }).eq("id", id.userId);
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({ avatar_url: url })
+        .eq("id", id.userId);
+      if (profileError) throw profileError;
       setAvatarUrl(url);
+      setAvatarMessage({ kind: "ok", text: "Profile photo updated." });
+      if (avatarUrl) {
+        try {
+          const previous = new URL(avatarUrl);
+          const marker = "/storage/v1/object/public/avatars/";
+          const markerAt = previous.pathname.indexOf(marker);
+          if (previous.origin === new URL(url).origin && markerAt >= 0) {
+            const previousPath = decodeURIComponent(previous.pathname.slice(markerAt + marker.length));
+            if (previousPath.startsWith(`${id.userId}/`) && previousPath !== path) {
+              await supabase.storage.from("avatars").remove([previousPath]);
+            }
+          }
+        } catch {
+          // The profile update succeeded; stale-photo cleanup is best effort.
+        }
+      }
+    } catch {
+      if (uploadedPath) {
+        await supabase.storage.from("avatars").remove([uploadedPath]);
+      }
+      setAvatarMessage({ kind: "err", text: "Couldn't update your profile photo. Try again." });
     } finally {
       setUploading(false);
     }
@@ -207,6 +236,14 @@ export default function ProfilePage() {
         <div className="mt-1 flex items-center gap-1 text-sm text-brand-online">
           <span className="inline-block h-2 w-2 rounded-full bg-brand-online" /> online
         </div>
+        {avatarMessage && (
+          <div
+            role="status"
+            className={`mt-3 text-xs ${avatarMessage.kind === "ok" ? "text-brand-online" : "text-red-300"}`}
+          >
+            {avatarMessage.text}
+          </div>
+        )}
       </div>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-brand-border bg-brand-surface/70">
