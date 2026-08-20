@@ -29,7 +29,9 @@ contract from `lib/types.ts`, keeping the primary UI transport-independent.
 | Main chat UI | `components/ChatShell.tsx` | Conversation state, messaging UX, stealth and panic modes |
 | Demo transport | `lib/localTransport.ts` | BroadcastChannel pairing and Echo simulation |
 | Cloud transport | `lib/supabaseTransport.ts` | DM history, realtime, polling, reactions, reads, files |
+| Offline delivery | `lib/encryptedOutbox.ts` | Ciphertext-only IndexedDB queue and idempotent retry |
 | Group transport | `lib/groupTransport.ts` | Pairwise fan-out encryption for group messages |
+| Account sync | `lib/accountSettings.ts`, `lib/accountPresence.ts` | Typed preferences and privacy-filtered global activity |
 | Cryptography | `lib/crypto.ts` | ECDH, AES-GCM, IndexedDB keys, encrypted key backup |
 | Data schema | `supabase/*.sql` | Tables, functions, storage, publications, RLS |
 | Push delivery | `lib/push.ts`, `public/sw.js`, `supabase/functions/send-push` | Subscription and generic background notification delivery |
@@ -42,8 +44,8 @@ contract from `lib/types.ts`, keeping the primary UI transport-independent.
 4. `get_or_create_dm` resolves the two-member conversation.
 5. Each browser derives an AES-GCM key from its private key and the peer's
    published public key.
-6. The sender encrypts the message envelope locally and inserts only ciphertext
-   and IV into Postgres.
+6. The sender encrypts once, stores only the ciphertext envelope in the local
+   outbox, and sends it with a stable UUID through an idempotent RLS-protected RPC.
 7. The recipient receives the row through Realtime. A three-second poll is a
    delivery fallback.
 8. The recipient decrypts locally and renders plaintext only in browser memory.
@@ -76,8 +78,8 @@ identity are never passed to the function.
 
 ## State and persistence
 
-- IndexedDB: device key pair
-- localStorage: onboarding, theme, contacts, local blocks, notification choices
+- IndexedDB: device key pair and a separate ciphertext-only DM outbox
+- localStorage: onboarding, cached account preferences, contacts, and device choices
 - Supabase Auth: user session
 - Postgres: profiles, membership, ciphertext, reads, reactions, subscriptions
 - Supabase Storage: encrypted attachments and public profile avatars
@@ -87,6 +89,6 @@ identity are never passed to the function.
 - One profile currently publishes one active public key, so automatic
   multi-device key management is incomplete.
 - Static ECDH keys provide no forward secrecy.
-- Local blocking is not yet a server-enforced deny rule.
+- Blocking is account-scoped and enforced by database authorization for new DMs.
 - `ChatShell.tsx` owns many concerns and should be decomposed behind tests.
 - Raw SQL waves require disciplined ordering and staging validation.
