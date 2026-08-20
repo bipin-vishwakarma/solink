@@ -175,6 +175,8 @@ export function ChatShell({
   ideRef.current = ide;
   const notifyRef = useRef(notifyOn);
   notifyRef.current = notifyOn;
+  const readReceiptsEnabled = () => localStorage.getItem("solink:readReceipts") !== "0";
+  const accountNotificationsEnabled = () => localStorage.getItem("solink:accountNotify") !== "0";
 
   // restore notification preference
   useEffect(() => {
@@ -510,8 +512,8 @@ export function ChatShell({
         return next;
       });
       if (!isActive && !muted) {
-        playPing();
-        if (notifyRef.current) {
+        if (accountNotificationsEnabled()) playPing();
+        if (notifyRef.current && accountNotificationsEnabled()) {
           showMessageNotification(uname, "sent you a message", stealthRef.current || ideRef.current);
         }
       }
@@ -622,7 +624,20 @@ export function ChatShell({
         if (!loadingInitialHistoryRef.current) animatedMessageIdsRef.current.add(payload.id);
         setMessagesByContact((prev) => {
           const list = prev[activeContact] || [];
-          if (list.some((m) => m.id === payload.id)) return prev;
+          const duplicate = list.find((m) => m.id === payload.id);
+          if (duplicate) {
+            if (mine && duplicate.status) {
+              return {
+                ...prev,
+                [activeContact]: list.map((message) =>
+                  message.id === payload.id
+                    ? { ...message, ts: payload.ts, status: undefined }
+                    : message
+                ),
+              };
+            }
+            return prev;
+          }
           // Keep chronological order so paged-in older messages land at the top.
           const next = [
             ...list,
@@ -644,14 +659,14 @@ export function ChatShell({
               (contact) => contact.username.toLowerCase() === activeContact.toLowerCase()
             );
             const muted = !!current?.mutedUntil && current.mutedUntil > Date.now();
-            if (!muted) playPing();
+            if (!muted && accountNotificationsEnabled()) playPing();
             if (!muted) {
               document.title =
                 stealthRef.current || ideRef.current
                   ? DISGUISED_TITLE
                   : "● New message · Solink";
             }
-            if (notifyRef.current && !muted) {
+            if (notifyRef.current && !muted && accountNotificationsEnabled()) {
               // Disguise-aware: hide sender + content while in stealth or panic mode.
               showMessageNotification(activeContact, text, stealthRef.current || ideRef.current);
             }
@@ -914,7 +929,7 @@ export function ChatShell({
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
     const list = messagesByContact[activeContact] || [];
     const unread = list.filter((m) => !m.mine && !markedRef.current.has(m.id)).map((m) => m.id);
-    if (unread.length && transportRef.current?.markRead) {
+    if (unread.length && transportRef.current?.markRead && readReceiptsEnabled()) {
       unread.forEach((id) => markedRef.current.add(id));
       transportRef.current.markRead(unread);
     }
@@ -975,7 +990,7 @@ export function ChatShell({
 
     // Optimistic: show the bubble immediately in a "sending" state, then reconcile
     // to the server id on success or mark it "failed" (tap-to-retry) on failure.
-    const tempId = "tmp-" + crypto.randomUUID();
+    const tempId = crypto.randomUUID();
     const ts = Date.now();
     animatedMessageIdsRef.current.add(tempId);
     setMessagesByContact((prev) => ({
@@ -989,20 +1004,20 @@ export function ChatShell({
       prev.map((c) => (c.username === contact ? { ...c, lastText: text, lastActivity: ts } : c))
     );
 
-    const payload = await t.send(encodeMessage(text, reply));
+    const result = await t.send(encodeMessage(text, reply), tempId);
     setMessagesByContact((prev) => {
       const list = prev[contact] || [];
       return {
         ...prev,
         [contact]: list.map((m) =>
           m.id === tempId
-            ? payload
+            ? result.state === "sent"
               ? (() => {
                   animatedMessageIdsRef.current.delete(tempId);
-                  animatedMessageIdsRef.current.add(payload.id);
-                  return { ...m, id: payload.id, ts: payload.ts, status: undefined };
+                  animatedMessageIdsRef.current.add(result.payload.id);
+                  return { ...m, id: result.payload.id, ts: result.payload.ts, status: undefined };
                 })()
-              : { ...m, status: "failed" }
+              : { ...m, status: result.state === "queued" ? "queued" : "failed" }
             : m
         ),
       };
@@ -1012,23 +1027,23 @@ export function ChatShell({
   // Re-send a message that previously failed (tap the ⚠ bubble).
   async function retryMessage(m: ChatMessage) {
     const t = transportRef.current;
-    if (!t || !activeContact || m.status !== "failed") return;
+    if (!t || !activeContact || (m.status !== "failed" && m.status !== "queued")) return;
     const contact = activeContact;
     setMessagesByContact((prev) => ({
       ...prev,
       [contact]: (prev[contact] || []).map((x) => (x.id === m.id ? { ...x, status: "sending" } : x)),
     }));
     const reply = m.replyTo;
-    const payload = await t.send(encodeMessage(m.text, reply));
+    const result = await t.send(encodeMessage(m.text, reply), m.id);
     setMessagesByContact((prev) => {
       const list = prev[contact] || [];
       return {
         ...prev,
         [contact]: list.map((x) =>
           x.id === m.id
-            ? payload
-              ? { ...x, id: payload.id, ts: payload.ts, status: undefined }
-              : { ...x, status: "failed" }
+            ? result.state === "sent"
+              ? { ...x, id: result.payload.id, ts: result.payload.ts, status: undefined }
+              : { ...x, status: result.state === "queued" ? "queued" : "failed" }
             : x
         ),
       };
@@ -1046,7 +1061,7 @@ export function ChatShell({
       [contact]: (prev[contact] || []).filter((x) => x.id !== m.id),
     }));
     // A failed/never-sent message has no server row — just drop it locally.
-    if (m.status === "failed" || m.id.startsWith("tmp-")) return;
+    if (m.status === "failed") return;
     const t = transportRef.current;
     const ok = t?.deleteMessage ? await t.deleteMessage(m.id) : false;
     if (!ok) {
@@ -1236,6 +1251,7 @@ export function ChatShell({
             myName={myName}
             onBack={() => setActiveGroupId(null)}
             onSend={sendGroup}
+            onLoadOlder={() => groupTransportRef.current?.loadOlder() || Promise.resolve(0)}
           />
         ) : !activeContact ? (
           <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden px-6 text-center">

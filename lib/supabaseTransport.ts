@@ -18,10 +18,20 @@ import type {
   AttachmentMeta,
   AttachmentRef,
   ChatTransport,
+  SendResult,
   TransportEvents,
   WirePayload,
 } from "./types";
 import type { Profile } from "./supabaseClient";
+import {
+  getOutboxRecord,
+  isPermanentOutboxError,
+  removeOutboxRecord,
+  saveOutboxRecord,
+  sendOutboxRecord,
+  type EncryptedOutboxRecord,
+} from "./encryptedOutbox";
+import { loadAccountPresence } from "./accountPresence";
 
 const ATTACH_BUCKET = "attachments";
 const HISTORY_PAGE = 40; // messages loaded per page (initial + each "load older")
@@ -57,6 +67,8 @@ export class SupabaseTransport implements ChatTransport {
   private historyExhausted = false; // no more older messages to load
   private keyMismatchReported = false;
   private undecryptable = new Set<string>();
+  private ownKeyVerified = false;
+  private presenceTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private peerUsername: string,
@@ -91,6 +103,10 @@ export class SupabaseTransport implements ChatTransport {
     // 2. Derive the shared AES key from my private key + their public key.
     const theirPub = await importPublicKey(this.peer.public_key);
     this.sharedKey = await deriveSharedKey(this.ctx.keyPair.privateKey, theirPub);
+
+    // Establish that this installation owns the account key before allowing
+    // any offline fallback to the last verified peer key.
+    await this.verifyOwnPublishedKey();
 
     // 3. Find or create the 1-on-1 conversation.
     const { data: convId, error: rpcErr } = await this.sb.rpc("get_or_create_dm", {
@@ -144,6 +160,17 @@ export class SupabaseTransport implements ChatTransport {
       })
       .subscribe();
 
+    const refreshPresence = async () => {
+      if (!this.peer) return;
+      const snapshot = await loadAccountPresence(this.sb, this.peer.id);
+      this.events.onPresence?.(
+        snapshot.status === "online",
+        snapshot.status === "offline" ? snapshot.lastSeen : undefined
+      );
+    };
+    void refreshPresence();
+    this.presenceTimer = setInterval(() => void refreshPresence(), 45_000);
+
     // 5b. SECONDARY channel — read receipts + presence. If this fails to subscribe
     //     (e.g. realtime not enabled for message_reads), messaging is UNAFFECTED.
     this.extrasChannel = this.sb
@@ -169,19 +196,7 @@ export class SupabaseTransport implements ChatTransport {
           }
         }
       )
-      .on("presence", { event: "sync" }, () => {
-        if (!this.extrasChannel) return;
-        const state = this.extrasChannel.presenceState() as Record<string, Array<{ user?: string }>>;
-        const online = Object.values(state).some((entries) =>
-          entries.some((e) => e.user === this.peer?.id)
-        );
-        this.events.onPresence?.(online);
-      })
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          void this.extrasChannel?.track({ user: this.ctx.userId, at: Date.now() });
-        }
-      });
+      .subscribe();
 
     // 5c. Polling safety net — guarantees delivery even if realtime ever hiccups.
     //     Deduped against realtime by message id, so it never double-shows.
@@ -302,7 +317,10 @@ export class SupabaseTransport implements ChatTransport {
         .eq("id", this.ctx.userId)
         .maybeSingle();
       if (error || !data?.public_key) return "failed";
-      if (data.public_key === localPublicKey) return "current";
+      if (data.public_key === localPublicKey) {
+        this.ownKeyVerified = true;
+        return "current";
+      }
       return "mismatch";
     } catch {
       return "failed";
@@ -363,58 +381,98 @@ export class SupabaseTransport implements ChatTransport {
     return true;
   }
 
-  async send(text: string): Promise<WirePayload | null> {
-    if (!this.conversationId) return null;
+  async send(text: string, messageId = crypto.randomUUID()): Promise<SendResult> {
+    if (!this.conversationId) return { state: "failed", id: messageId };
+    const queued = await getOutboxRecord(messageId).catch(() => undefined);
+    if (queued) return this.sendPreparedRecord(queued);
     // Never send under a fresh installation key that differs from the account's
     // established key. Doing so would break other sessions and old history.
     const ownKeyStatus = await this.verifyOwnPublishedKey();
-    if (ownKeyStatus !== "current") {
+    if (ownKeyStatus === "mismatch") {
       this.events.onError?.(
-        ownKeyStatus === "mismatch"
-          ? "Restore this account's encryption key before sending from this device."
-          : "Could not verify this device's encryption key. Try again."
+        "Restore this account's encryption key before sending from this device."
       );
-      return null;
+      return { state: "failed", id: messageId };
+    }
+    if (ownKeyStatus === "failed" && !this.ownKeyVerified) {
+      this.events.onError?.("Could not verify this device's encryption key. Try again.");
+      return { state: "failed", id: messageId };
     }
     // A peer may have opened Solink in another browser since this chat started.
     // Always encrypt to the public key currently published for the recipient.
     const currentKey = await this.refreshPeerKey();
-    if (!currentKey) {
+    const key = currentKey || (this.ownKeyVerified ? this.sharedKey : null);
+    if (!key) {
       this.events.onError?.("Could not refresh your contact's encryption key. Try again.");
-      return null;
+      return { state: "failed", id: messageId };
     }
-    return this.sendWithKey(text, currentKey);
+    return this.prepareAndSend(text, key, messageId, true);
   }
 
-  private async sendWithKey(text: string, key: CryptoKey): Promise<WirePayload | null> {
-    if (!this.conversationId) return null;
+  private async prepareAndSend(
+    text: string,
+    key: CryptoKey,
+    messageId: string,
+    allowQueue: boolean
+  ): Promise<SendResult> {
+    if (!this.conversationId) return { state: "failed", id: messageId };
     const enc = await encryptMessage(key, text);
-
-    const { data, error } = await this.sb
-      .from("messages")
-      .insert({
-        conversation_id: this.conversationId,
-        sender_id: this.ctx.userId,
-        ciphertext: enc.ciphertext,
-        iv: enc.iv,
-      })
-      .select("id, created_at")
-      .single();
-
-    if (error || !data) {
-      this.events.onError?.(error?.message || "Failed to send");
-      return null;
-    }
-    this.seen.add(data.id as string); // don't let polling re-deliver our own message
-    this.msgIds.add(data.id as string);
-    this.events.onWireLog(enc.ciphertext);
-    return {
-      id: data.id as string,
+    const record: EncryptedOutboxRecord = {
+      id: messageId,
+      accountId: this.ctx.userId,
+      conversationId: this.conversationId,
       ciphertext: enc.ciphertext,
       iv: enc.iv,
-      ts: new Date(data.created_at as string).getTime(),
-      senderName: this.ctx.username,
+      createdAt: Date.now(),
+      attempts: 0,
+      nextAttemptAt: 0,
     };
+    try {
+      await saveOutboxRecord(record);
+    } catch {
+      this.events.onError?.("Could not safely queue this message. Try again.");
+      return { state: "failed", id: messageId };
+    }
+    return this.sendPreparedRecord(record, allowQueue);
+  }
+
+  private async sendPreparedRecord(
+    record: EncryptedOutboxRecord,
+    allowQueue = true
+  ): Promise<SendResult> {
+    let response;
+    try {
+      response = await sendOutboxRecord(this.sb, record);
+    } catch {
+      if (allowQueue) return { state: "queued", id: record.id, ts: record.createdAt };
+      await removeOutboxRecord(record.id).catch(() => {});
+      return { state: "failed", id: record.id };
+    }
+    const { data, error } = response;
+
+    if (error || !data) {
+      if (isPermanentOutboxError(error) || !allowQueue) {
+        await removeOutboxRecord(record.id).catch(() => {});
+        this.events.onError?.("Message could not be sent.");
+        return { state: "failed", id: record.id };
+      }
+      return { state: "queued", id: record.id, ts: record.createdAt };
+    }
+    const inserted = Array.isArray(data) ? data[0] : data;
+    if (!inserted?.id || !inserted?.created_at) {
+      return { state: "queued", id: record.id, ts: record.createdAt };
+    }
+    await removeOutboxRecord(record.id).catch(() => {});
+    this.seen.add(inserted.id as string); // don't let polling re-deliver our own message
+    this.msgIds.add(inserted.id as string);
+    this.events.onWireLog(record.ciphertext);
+    return { state: "sent", payload: {
+      id: inserted.id as string,
+      ciphertext: record.ciphertext,
+      iv: record.iv,
+      ts: new Date(inserted.created_at as string).getTime(),
+      senderName: this.ctx.username,
+    } };
   }
 
   async sendAttachment(
@@ -448,17 +506,19 @@ export class SupabaseTransport implements ChatTransport {
     }
     const attachment: AttachmentMeta = { ...meta, ref: { path } };
     // Use the same key for the attachment bytes and the message envelope.
-    const payload = await this.sendWithKey(
+    const result = await this.prepareAndSend(
       encodeMessage(caption, undefined, attachment),
-      currentKey
+      currentKey,
+      crypto.randomUUID(),
+      false
     );
-    if (!payload) {
+    if (result.state !== "sent") {
       // The encrypted object is otherwise orphaned when the message insert
       // fails. Cleanup is best-effort and never changes delivery semantics.
       await this.sb.storage.from(ATTACH_BUCKET).remove([path]);
       return null;
     }
-    return { payload, attachment };
+    return { payload: result.payload, attachment };
   }
 
   async resolveAttachment(ref: AttachmentRef): Promise<Blob | null> {
@@ -542,6 +602,10 @@ export class SupabaseTransport implements ChatTransport {
     if (this.reactionsChannel) {
       void this.sb.removeChannel(this.reactionsChannel);
       this.reactionsChannel = null;
+    }
+    if (this.presenceTimer) {
+      clearInterval(this.presenceTimer);
+      this.presenceTimer = null;
     }
   }
 }

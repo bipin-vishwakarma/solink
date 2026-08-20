@@ -7,6 +7,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { encryptForRecipients, decryptFromSender, type GroupMember } from "./crypto";
+import { decodeMessage, encodeVersionedMessage } from "./envelope";
 import type { WirePayload } from "./types";
 
 export interface GroupContext {
@@ -39,6 +40,9 @@ export class GroupTransport {
   private seen = new Set<string>();
   // member id -> { username, publicKey(base64) }
   private members = new Map<string, { username: string; publicKey: string }>();
+  private oldestCreatedAt: string | null = null;
+  private oldestId: string | null = null;
+  private historyExhausted = false;
 
   constructor(
     private groupId: string,
@@ -80,7 +84,13 @@ export class GroupTransport {
       .eq("group_id", this.groupId)
       .order("created_at", { ascending: false })
       .limit(HISTORY_PAGE);
-    for (const row of ((history as GroupMessageRow[] | null) || []).reverse()) {
+    const initial = ((history as GroupMessageRow[] | null) || []).reverse();
+    if (initial.length < HISTORY_PAGE) this.historyExhausted = true;
+    if (initial.length) {
+      this.oldestCreatedAt = initial[0].created_at;
+      this.oldestId = initial[0].id;
+    }
+    for (const row of initial) {
       await this.deliver(row);
     }
 
@@ -110,7 +120,6 @@ export class GroupTransport {
 
   private async deliver(row: GroupMessageRow) {
     if (this.seen.has(row.id)) return;
-    this.seen.add(row.id);
     const sender = this.members.get(row.sender_id);
     const entry = row.recipients?.[this.ctx.userId];
     if (!sender || !entry) return; // not addressed to us / unknown sender
@@ -120,8 +129,9 @@ export class GroupTransport {
     } catch {
       return; // undecryptable (key drift) — skip rather than crash
     }
+    this.seen.add(row.id);
     this.events.onMessage(
-      text,
+      decodeMessage(text).text,
       {
         id: row.id,
         ciphertext: entry.ciphertext,
@@ -134,13 +144,14 @@ export class GroupTransport {
   }
 
   async send(text: string): Promise<WirePayload | null> {
+    await this.refreshMembers();
     // Encrypt for every member INCLUDING ourselves, so all devices (and our own
     // history) can read it.
     const recipients: GroupMember[] = [...this.members.entries()].map(([id, v]) => ({
       id,
       publicKey: v.publicKey,
     }));
-    const map = await encryptForRecipients(this.ctx.keyPair.privateKey, recipients, text);
+    const map = await encryptForRecipients(this.ctx.keyPair.privateKey, recipients, encodeVersionedMessage(text));
     const { data, error } = await this.sb
       .from("group_messages")
       .insert({ group_id: this.groupId, sender_id: this.ctx.userId, recipients: map })
@@ -159,6 +170,47 @@ export class GroupTransport {
       ts: new Date(data.created_at as string).getTime(),
       senderName: this.ctx.username,
     };
+  }
+
+  private async refreshMembers() {
+    const { data } = await this.sb
+      .from("group_members")
+      .select("user_id, profiles!inner(username, public_key)")
+      .eq("group_id", this.groupId);
+    type MemRow = { user_id: string; profiles: { username: string; public_key: string } };
+    const next = new Map<string, { username: string; publicKey: string }>();
+    for (const member of (data as unknown as MemRow[] | null) || []) {
+      next.set(member.user_id, {
+        username: member.profiles.username,
+        publicKey: member.profiles.public_key,
+      });
+    }
+    if (next.size) this.members = next;
+  }
+
+  async loadOlder(): Promise<number> {
+    if (this.historyExhausted || !this.oldestCreatedAt || !this.oldestId) return 0;
+    const { data } = await this.sb
+      .from("group_messages")
+      .select("id, group_id, sender_id, recipients, created_at")
+      .eq("group_id", this.groupId)
+      .or(`created_at.lt.${this.oldestCreatedAt},and(created_at.eq.${this.oldestCreatedAt},id.lt.${this.oldestId})`)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(HISTORY_PAGE);
+    const rows = ((data as GroupMessageRow[] | null) || []).reverse();
+    if (rows.length < HISTORY_PAGE) this.historyExhausted = true;
+    if (rows.length) {
+      this.oldestCreatedAt = rows[0].created_at;
+      this.oldestId = rows[0].id;
+    }
+    let delivered = 0;
+    for (const row of rows) {
+      const before = this.seen.size;
+      await this.deliver(row);
+      if (this.seen.size > before) delivered++;
+    }
+    return delivered;
   }
 
   destroy() {

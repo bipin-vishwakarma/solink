@@ -306,13 +306,17 @@ export function MessageBubble({
           </div>
         )}
         <div className={`mt-px flex items-center justify-end gap-1 text-[10px] leading-none ${msg.mine ? "text-white/75" : "text-brand-faint"}`}>
-          {msg.mine && msg.status === "failed" ? (
+          {msg.mine && (msg.status === "failed" || msg.status === "queued") ? (
             <button
               onClick={onRetry}
-              className="flex items-center gap-1 font-medium text-red-200 underline decoration-red-200/60 underline-offset-2"
+              className={`flex items-center gap-1 font-medium underline underline-offset-2 ${
+                msg.status === "queued"
+                  ? "text-amber-100 decoration-amber-100/60"
+                  : "text-red-200 decoration-red-200/60"
+              }`}
               title="Tap to retry"
             >
-              ⚠ Not sent · Retry
+              {msg.status === "queued" ? "🕓 Queued · Retry" : "⚠ Not sent · Retry"}
             </button>
           ) : (
             <>
