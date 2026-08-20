@@ -95,6 +95,8 @@ trigger. The Edge Function itself must return HTTP 401 when the
 
 - Google OAuth completes and returns to the production origin.
 - Existing users load their profiles without key replacement surprises.
+- A fresh browser can request linking, an active device sees the same comparison
+  code, approval restores history, and denial/expiry leaves the candidate unlinked.
 - Existing users register in `account_devices`; five active devices are allowed
   and a concurrent sixth registration is rejected with `DEVICE_LIMIT_REACHED`.
 - Two distinct users can send, receive, reconnect, and load history.

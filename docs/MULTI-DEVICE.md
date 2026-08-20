@@ -24,6 +24,22 @@ cryptographically recreate a lost private key for legacy ciphertext.
 
 ## Delivery phases
 
+### Approved-device compatibility bridge
+
+A new installation signs in with Google, then requests approval from an already
+active Solink installation. Both show the same six-digit comparison code. After
+explicit approval, the working installation wraps the established account key
+for the candidate key using one-time ECDH, HKDF-SHA-256, and AES-GCM. Supabase
+relays only the encrypted envelope. The candidate decrypts in memory, verifies
+the restored public key against `profiles.public_key`, atomically claims one of
+the five device slots, and only then persists the restored key.
+
+Requests expire after ten minutes, are bound to the requesting Auth session,
+cannot approve themselves, and are single-use. The passphrase-wrapped backup
+remains a fallback when no working installation is available. This bridge keeps
+legacy history readable but copies the legacy account private key; it is not a
+substitute for Phase 4 per-device envelopes or cryptographic revocation.
+
 ### Phase 1: stop destructive key replacement (#12)
 
 At login, compare the installation's public key with `profiles.public_key`.
