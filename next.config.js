@@ -12,7 +12,9 @@ const nextConfig = {
       { key: "X-Frame-Options", value: "DENY" },
       {
         key: "Permissions-Policy",
-        value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        // Voice notes and location sharing are first-party features. Keep
+        // those capabilities same-origin while denying unrelated APIs.
+        value: "camera=(), microphone=(self), geolocation=(self), payment=(), usb=()",
       },
     ];
     return [
