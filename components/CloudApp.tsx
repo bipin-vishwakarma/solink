@@ -11,6 +11,7 @@ import { GroupTransport, type GroupContext, type GroupEvents } from "@/lib/group
 import type { InboxActivity } from "@/lib/types";
 import { ChatShell, type TransportFactory } from "./ChatShell";
 import { LogoMark } from "./Logo";
+import { DeviceLinkFlow } from "./DeviceLinkFlow";
 
 type Phase =
   | "loading"
@@ -46,6 +47,7 @@ export function CloudApp() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [deviceKeyState, setDeviceKeyState] = useState<DeviceKeyState | null>(null);
+  const [backupExists, setBackupExists] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -82,6 +84,7 @@ export function CloudApp() {
             .maybeSingle();
           if (backupError) throw backupError;
           const keyState = classifyDeviceKey(pub, prof.public_key, !!backup);
+          setBackupExists(!!backup);
           setDeviceKeyState(keyState);
           if (keyState !== "matching") {
             // Never replace an established account key just because Google SSO
@@ -390,41 +393,27 @@ export function CloudApp() {
   if (phase === "device-recovery") {
     return (
       <Card>
-        <h1 className="mb-2 text-[22px] font-semibold text-brand-text">
-          This is a new device
-        </h1>
-        <p className="text-sm text-brand-muted">
-          Google sign-in linked your account, but this browser does not have the encryption key
-          used for your existing chats. Solink did not replace that key, so your other devices and
-          message history remain safe.
-        </p>
-        {err && <p className="mt-3 text-xs text-red-400">{err}</p>}
-        {deviceKeyState === "recovery-required" ? (
-          <>
-            <p className="mt-3 text-sm text-brand-muted">
-              An encrypted recovery backup exists. Restore it from your profile to read existing
-              history on this device.
-            </p>
-            <a
-              href="/profile?recover=1"
-              className="mt-5 block w-full rounded-xl bg-brand-accent py-2.5 text-center font-medium text-white transition hover:bg-brand-accentHover"
-            >
-              Restore encryption key
-            </a>
-          </>
+        {userId && profile && keyPair ? (
+          <DeviceLinkFlow
+            sb={sb}
+            accountId={userId}
+            accountPublicKey={profile.public_key}
+            candidateKeyPair={keyPair}
+            backupExists={backupExists || deviceKeyState === "recovery-required"}
+            onLinked={(restored) => {
+              setKeyPair(restored);
+              setDeviceKeyState("matching");
+              setPhase("ready");
+            }}
+            onSignOut={signOut}
+          />
         ) : (
-          <p className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-200">
-            No encrypted recovery backup is available. Existing encrypted history cannot be opened
-            on this installation yet. Use an existing device to create a backup before continuing.
-          </p>
+          <>
+            <h1 className="text-xl font-semibold text-brand-text">Could not verify this device</h1>
+            <p className="mt-2 text-sm text-brand-muted">{err || "Check your connection and try again."}</p>
+            <button onClick={signOut} className="mt-4 w-full rounded-xl border border-brand-border py-2.5 text-sm text-brand-muted">Sign out</button>
+          </>
         )}
-        {err && <p className="mt-3 text-xs text-red-400">{err}</p>}
-        <button
-          onClick={signOut}
-          className="mt-4 w-full rounded-xl border border-brand-border py-2.5 text-sm text-brand-muted hover:bg-white/5"
-        >
-          Sign out
-        </button>
       </Card>
     );
   }

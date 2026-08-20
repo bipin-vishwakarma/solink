@@ -5,6 +5,9 @@ import {
   deriveSharedKey,
   encryptBytes,
   encryptMessage,
+  encryptDeviceTransfer,
+  decryptDeviceTransfer,
+  exportPublicKey,
 } from "../lib/crypto";
 
 async function createKeyPair(): Promise<CryptoKeyPair> {
@@ -65,5 +68,53 @@ describe("browser message encryption", () => {
     const decrypted = await decryptBytes(bobKey, encrypted);
 
     expect(new Uint8Array(decrypted)).toEqual(original);
+  });
+
+  it("transfers an account key only to the approved candidate device", async () => {
+    const account = await createKeyPair();
+    const candidate = await createKeyPair();
+    const stranger = await createKeyPair();
+    const candidatePublicKey = await exportPublicKey(candidate.publicKey);
+    const envelope = await encryptDeviceTransfer(
+      account,
+      candidatePublicKey,
+      "account-a",
+      "request-a",
+      "confirmation-secret"
+    );
+
+    const restored = await decryptDeviceTransfer(
+      envelope,
+      candidate,
+      "account-a",
+      "request-a"
+    );
+
+    expect(await exportPublicKey(restored.keyPair.publicKey)).toBe(
+      await exportPublicKey(account.publicKey)
+    );
+    expect(restored.confirmationToken).toBe("confirmation-secret");
+    await expect(
+      decryptDeviceTransfer(envelope, stranger, "account-a", "request-a")
+    ).rejects.toThrow();
+  });
+
+  it("rejects a transfer replayed with different account or request binding", async () => {
+    const account = await createKeyPair();
+    const candidate = await createKeyPair();
+    const envelope = await encryptDeviceTransfer(
+      account,
+      await exportPublicKey(candidate.publicKey),
+      "account-a",
+      "request-a",
+      "confirmation-secret"
+    );
+
+    await expect(
+      decryptDeviceTransfer(envelope, candidate, "account-b", "request-a")
+    ).rejects.toThrow();
+    await expect(
+      decryptDeviceTransfer(envelope, candidate, "account-a", "request-b")
+    ).rejects.toThrow();
   });
 });

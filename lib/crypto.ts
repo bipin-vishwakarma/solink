@@ -228,6 +228,162 @@ export async function restoreKeyPair(backup: string, passphrase: string): Promis
   return pair;
 }
 
+// ---------- approved device transfer ----------
+
+const DEVICE_LINK_INFO = new TextEncoder().encode("solink-device-link-v1");
+
+export interface DeviceTransferEnvelope {
+  v: 1;
+  ephemeralPublicKey: string;
+  iv: string;
+  ciphertext: string;
+}
+
+async function deriveDeviceTransferKey(
+  privateKey: CryptoKey,
+  publicKey: CryptoKey,
+  requestId: string
+): Promise<CryptoKey> {
+  // Existing Solink keys were imported with deriveKey-only usage. Re-import the
+  // same extractable JWK in memory with the deriveBits usage needed for HKDF;
+  // this does not persist or transmit private material.
+  const deriveBitsPrivateKey = privateKey.usages.includes("deriveBits")
+    ? privateKey
+    : await (async () => {
+        const jwk = await crypto.subtle.exportKey("jwk", privateKey);
+        delete jwk.key_ops;
+        return crypto.subtle.importKey(
+        "jwk",
+        jwk,
+        { name: "ECDH", namedCurve: "P-256" },
+        true,
+        ["deriveBits"]
+        );
+      })();
+  const secret = await crypto.subtle.deriveBits(
+    { name: "ECDH", public: publicKey },
+    deriveBitsPrivateKey,
+    256
+  );
+  const material = await crypto.subtle.importKey("raw", secret, "HKDF", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: new TextEncoder().encode(requestId),
+      info: DEVICE_LINK_INFO,
+    },
+    material,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+function deviceTransferAad(accountId: string, requestId: string, candidatePublicKey: string) {
+  return new TextEncoder().encode(
+    JSON.stringify({ v: 1, accountId, requestId, candidatePublicKey })
+  );
+}
+
+/** Wrap the established account key for one approved candidate installation. */
+export async function encryptDeviceTransfer(
+  accountKeyPair: CryptoKeyPair,
+  candidatePublicKey: string,
+  accountId: string,
+  requestId: string,
+  confirmationToken: string
+): Promise<DeviceTransferEnvelope> {
+  const ephemeral = (await crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveBits"]
+  )) as CryptoKeyPair;
+  const candidate = await importPublicKey(candidatePublicKey);
+  const transferKey = await deriveDeviceTransferKey(ephemeral.privateKey, candidate, requestId);
+  const privateJwk = await crypto.subtle.exportKey("jwk", accountKeyPair.privateKey);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = new TextEncoder().encode(
+    JSON.stringify({ v: 1, privateJwk, confirmationToken })
+  );
+  const ciphertext = await crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv,
+      additionalData: deviceTransferAad(accountId, requestId, candidatePublicKey),
+    },
+    transferKey,
+    plaintext
+  );
+  return {
+    v: 1,
+    ephemeralPublicKey: await exportPublicKey(ephemeral.publicKey),
+    iv: bufToB64(iv.buffer),
+    ciphertext: bufToB64(ciphertext),
+  };
+}
+
+/** Decrypt an approved transfer in memory. Persistence happens only after server confirmation. */
+export async function decryptDeviceTransfer(
+  envelope: DeviceTransferEnvelope,
+  candidateKeyPair: CryptoKeyPair,
+  accountId: string,
+  requestId: string
+): Promise<{ keyPair: CryptoKeyPair; confirmationToken: string }> {
+  if (
+    envelope.v !== 1 ||
+    typeof envelope.ephemeralPublicKey !== "string" ||
+    typeof envelope.iv !== "string" ||
+    typeof envelope.ciphertext !== "string"
+  ) {
+    throw new Error("Unsupported or malformed device transfer");
+  }
+  const candidatePublicKey = await exportPublicKey(candidateKeyPair.publicKey);
+  const ephemeralPublicKey = await importPublicKey(envelope.ephemeralPublicKey);
+  const transferKey = await deriveDeviceTransferKey(
+    candidateKeyPair.privateKey,
+    ephemeralPublicKey,
+    requestId
+  );
+  const plaintext = await crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: new Uint8Array(b64ToBuf(envelope.iv)),
+      additionalData: deviceTransferAad(accountId, requestId, candidatePublicKey),
+    },
+    transferKey,
+    b64ToBuf(envelope.ciphertext)
+  );
+  const payload = JSON.parse(new TextDecoder().decode(plaintext)) as {
+    v?: unknown;
+    privateJwk?: JsonWebKey;
+    confirmationToken?: unknown;
+  };
+  if (payload.v !== 1 || !payload.privateJwk || typeof payload.confirmationToken !== "string") {
+    throw new Error("Unsupported or malformed device transfer payload");
+  }
+  const privateKey = await crypto.subtle.importKey(
+    "jwk",
+    payload.privateJwk,
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveKey"]
+  );
+  const publicKey = await crypto.subtle.importKey(
+    "jwk",
+    {
+      kty: payload.privateJwk.kty,
+      crv: payload.privateJwk.crv,
+      x: payload.privateJwk.x,
+      y: payload.privateJwk.y,
+    },
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    []
+  );
+  return { keyPair: { privateKey, publicKey }, confirmationToken: payload.confirmationToken };
+}
+
 // ---------- group encryption (pairwise fan-out) ----------
 // A group message is encrypted once PER recipient using the same pairwise ECDH
 // shared key the two members already use for 1-on-1. No new key material or

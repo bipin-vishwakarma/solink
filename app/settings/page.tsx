@@ -21,6 +21,7 @@ import {
   revokeAccountDevice,
   type AccountDevice,
 } from "@/lib/deviceRegistry";
+import { PendingDeviceLinks } from "@/components/PendingDeviceLinks";
 
 function Row({
   title,
@@ -239,6 +240,10 @@ export default function SettingsPage() {
           <span className="text-lg">⌨️</span>
         </Row>
       </div>
+
+      {id.mode === "cloud" && id.userId && supabase && (
+        <PendingDeviceLinks sb={supabase} />
+      )}
 
       {id.mode === "cloud" && id.userId && (
         <div className="mt-4 overflow-hidden rounded-2xl border border-brand-border bg-brand-surface/70">
