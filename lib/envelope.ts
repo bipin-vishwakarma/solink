@@ -28,6 +28,10 @@ export function encodeMessage(
   return JSON.stringify(env);
 }
 
+export function encodeVersionedMessage(text: string): string {
+  return JSON.stringify({ _sl: 1, t: text } satisfies Envelope);
+}
+
 export function decodeMessage(raw: string): DecodedMessage {
   if (raw.startsWith('{"_sl":1')) {
     try {

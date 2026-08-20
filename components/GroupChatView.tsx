@@ -18,6 +18,7 @@ export function GroupChatView({
   myName,
   onBack,
   onSend,
+  onLoadOlder,
 }: {
   name: string;
   members: { id: string; username: string }[];
@@ -26,6 +27,7 @@ export function GroupChatView({
   myName: string;
   onBack: () => void;
   onSend: (text: string) => void;
+  onLoadOlder?: () => Promise<number>;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
@@ -65,7 +67,15 @@ export function GroupChatView({
         ref={scrollRef}
         onScroll={() => {
           const el = scrollRef.current;
-          if (el) atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          if (el) {
+            atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+            if (el.scrollTop < 60 && onLoadOlder) {
+              const height = el.scrollHeight;
+              void onLoadOlder().then(() => {
+                el.scrollTop += el.scrollHeight - height;
+              });
+            }
+          }
         }}
         className="flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5"
       >

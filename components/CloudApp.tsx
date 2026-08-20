@@ -304,25 +304,23 @@ export function CloudApp() {
   const createGroup = useCallback(
     async (name: string, memberUsernames: string[]) => {
       if (!userId) return null;
-      const { data: g, error } = await sb
-        .from("groups")
-        .insert({ name: name.trim() || "Group", created_by: userId })
-        .select("id, name")
-        .single();
-      if (error || !g) return null;
-      await sb.from("group_members").insert({ group_id: g.id, user_id: userId });
+      let ids: string[] = [];
       if (memberUsernames.length) {
         const { data: profs } = await sb
           .from("profiles")
           .select("id, username")
           .in("username", memberUsernames);
-        const ids = ((profs as { id: string }[] | null) || [])
+        ids = ((profs as { id: string }[] | null) || [])
           .map((p) => p.id)
           .filter((pid) => pid !== userId);
-        if (ids.length)
-          await sb.from("group_members").insert(ids.map((pid) => ({ group_id: g.id, user_id: pid })));
       }
-      return g as { id: string; name: string };
+      const { data, error } = await sb.rpc("create_group_chat", {
+        group_name: name.trim() || "Group",
+        member_ids: ids,
+      });
+      if (error || !data) return null;
+      const group = Array.isArray(data) ? data[0] : data;
+      return group as { id: string; name: string };
     },
     [sb, userId]
   );
