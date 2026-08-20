@@ -57,11 +57,16 @@ export function DeviceLinkFlow({
 
   useEffect(() => {
     if (!request || !["pending", "approved"].includes(request.status)) return;
-    const timer = window.setInterval(async () => {
+    let stopped = false;
+    let completing = false;
+    const check = async () => {
+      if (completing || stopped) return;
       try {
         const current = await getDeviceLink(sb, request.id);
+        if (stopped) return;
         setRequest(current);
         if (current.status !== "approved" || !current.transfer_envelope) return;
+        completing = true;
         const restored = await decryptDeviceTransfer(
           current.transfer_envelope,
           candidateKeyPair,
@@ -75,12 +80,18 @@ export function DeviceLinkFlow({
         await persistKeyPair(restored.keyPair);
         onLinked(restored.keyPair);
       } catch (error) {
+        completing = false;
         setMessage(error instanceof Error && error.message.includes("DEVICE_LIMIT_REACHED")
           ? "The five-device limit was reached before approval completed."
           : "Approval could not be completed. Retry without clearing this browser.");
       }
-    }, 2500);
-    return () => window.clearInterval(timer);
+    };
+    void check();
+    const timer = window.setInterval(check, 2500);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
   }, [accountId, accountPublicKey, candidateKeyPair, onLinked, request, sb]);
 
   async function cancel() {

@@ -44,8 +44,16 @@ export function PendingDeviceLinks({ sb }: { sb: SupabaseClient }) {
       );
       await approveDeviceLink(sb, request.id, envelope, token);
       await refresh();
-    } catch {
-      setError("Could not approve this device. The request may have expired.");
+    } catch (approvalError) {
+      const detail = approvalError instanceof Error ? approvalError.message : "";
+      setError(
+        detail.includes("LINK_REQUEST_UNAVAILABLE")
+          ? "This request was already handled or expired. Ask the new device to try again."
+          : detail.includes("ACTIVE_DEVICE_REQUIRED")
+            ? "This browser is not registered as an active device. Reload Solink and try again."
+            : `Could not approve this device${detail ? `: ${detail}` : ". Try again."}`
+      );
+      await refresh();
     }
   }
 
