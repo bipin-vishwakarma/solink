@@ -13,9 +13,13 @@ import { ImageLightbox } from "./ImageLightbox";
 import { ImageCropper } from "./ImageCropper";
 import { GroupChatView } from "./GroupChatView";
 import { NewGroupModal } from "./NewGroupModal";
+import { LogoMark } from "./Logo";
 import type { GroupTransport, GroupEvents } from "@/lib/groupTransport";
 import { requestNotifyPermission, showMessageNotification, notifyPermission } from "@/lib/notify";
 import { encodeMessage, decodeMessage } from "@/lib/envelope";
+
+const SOLINK_TITLE = "Solink — Private Messenger";
+const DISGUISED_TITLE = "index.ts — Visual Studio Code";
 
 export type TransportFactory = (
   peerUsername: string,
@@ -364,21 +368,19 @@ export function ChatShell({
     );
   }, [activeContact]);
 
-  // deep-link: open a chat from ?c= and apply the stealth-by-default preference (once)
+  // Consume a shared contact link once, then remove the username from browser
+  // history so private contact metadata is not retained in the address bar.
   useEffect(() => {
     if (localStorage.getItem("solink:stealthDefault") === "1") setStealth(true);
-    const c = new URLSearchParams(window.location.search).get("c");
-    if (c) connectTo(c);
+    const url = new URL(window.location.href);
+    const c = url.searchParams.get("c");
+    if (c) {
+      connectTo(c);
+      url.searchParams.delete("c");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // keep the URL in sync with the open chat, so links are shareable/deep-linkable
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    if (activeContact) url.searchParams.set("c", activeContact);
-    else url.searchParams.delete("c");
-    window.history.replaceState(null, "", url.toString());
-  }, [activeContact]);
 
   // one transport per active conversation
   useEffect(() => {
@@ -437,7 +439,10 @@ export function ChatShell({
           // Notify when the tab isn't focused.
           if (typeof document !== "undefined" && document.hidden) {
             playPing();
-            document.title = "● New message";
+            document.title =
+              stealthRef.current || ideRef.current
+                ? DISGUISED_TITLE
+                : "● New message · Solink";
             if (notifyRef.current) {
               // Disguise-aware: hide sender + content while in stealth or panic mode.
               showMessageNotification(activeContact, text, stealthRef.current || ideRef.current);
@@ -596,14 +601,23 @@ export function ChatShell({
     openGroup(g.id);
   }
 
-  // Restore the (disguised) tab title when the user comes back.
+  // Use normal branding during regular chat and disguise the tab only while a
+  // privacy mode is active. Returning to the tab also clears notification dots.
   useEffect(() => {
-    function onFocus() {
-      document.title = "index.ts — Visual Studio Code";
-    }
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, []);
+    const restoreTitle = () => {
+      document.title = ideRef.current || stealthRef.current ? DISGUISED_TITLE : SOLINK_TITLE;
+    };
+    const onVisibility = () => {
+      if (!document.hidden) restoreTitle();
+    };
+    restoreTitle();
+    window.addEventListener("focus", restoreTitle);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", restoreTitle);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [ide, stealth]);
 
   // global hotkeys
   useEffect(() => {
@@ -1004,12 +1018,20 @@ export function ChatShell({
             onSend={sendGroup}
           />
         ) : !activeContact ? (
-          <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-            <div className="mb-4 text-5xl">🔗</div>
-            <h2 className="mb-1 text-lg font-semibold text-brand-text">No chat selected</h2>
-            <p className="max-w-xs text-sm text-brand-muted">
-              Search a username in the sidebar to start an end-to-end encrypted conversation.
-            </p>
+          <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden px-6 text-center">
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(217,119,87,0.08),transparent_42%)]" />
+            <div className="relative flex max-w-sm flex-col items-center">
+              <div className="mb-6 rounded-[28px] border border-brand-border bg-brand-surface/70 p-5 shadow-2xl shadow-black/20 backdrop-blur">
+                <LogoMark size={62} />
+              </div>
+              <h2 className="text-2xl font-semibold tracking-tight text-brand-text">Your conversations, together</h2>
+              <p className="mt-2 max-w-xs text-sm leading-relaxed text-brand-muted">
+                Choose a chat from the sidebar or find someone by username. Messages stay encrypted on every linked device.
+              </p>
+              <div className="mt-6 flex items-center gap-2 rounded-full border border-brand-border bg-brand-surface/50 px-3 py-1.5 text-[11px] text-brand-muted">
+                <span className="h-1.5 w-1.5 rounded-full bg-brand-online" /> End-to-end encrypted
+              </div>
+            </div>
           </div>
         ) : (
           <>
