@@ -130,6 +130,15 @@ or environment changes follow `docs/DEPLOYMENT.md` and require explicit approval
 - Keep runtime dependencies small and compatible with the free-stack goal.
 - Run `npm audit` and inspect Dependabot PR failures before merging.
 
+## Web release versioning
+
+Keep the semantic version in `package.json`, `package-lock.json`, and
+`lib/appVersion.ts` aligned for every user-visible release. The root layout
+checks the uncached `/version.json` endpoint on load, reconnect, tab visibility,
+and every five minutes. A mismatch offers an Update button to already-open web
+and installed-PWA clients. Update checks are optional and must never interrupt
+message sending or receiving.
+
 ## Git and GitHub workflow
 
 1. Update local `main`, then create `codex/<short-purpose>` or another focused

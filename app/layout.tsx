@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ViewportManager } from "@/components/ViewportManager";
+import { UpdateNotice } from "@/components/UpdateNotice";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://solink-omega.vercel.app"),
@@ -58,6 +59,7 @@ export default function RootLayout({
         />
         <ViewportManager />
         {children}
+        <UpdateNotice />
       </body>
     </html>
   );
