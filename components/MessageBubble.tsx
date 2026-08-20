@@ -159,6 +159,7 @@ export function MessageBubble({
   onRetry,
   onDelete,
   showSender = false,
+  animate = false,
 }: {
   msg: ChatMessage;
   grouped?: boolean;
@@ -170,6 +171,7 @@ export function MessageBubble({
   onRetry?: () => void;
   onDelete?: () => void;
   showSender?: boolean;
+  animate?: boolean;
 }) {
   const [showReactBar, setShowReactBar] = useState(false);
   const touchStartX = useRef<number | null>(null);
@@ -181,7 +183,7 @@ export function MessageBubble({
   const actions = (
     <div
       className={`flex shrink-0 items-center gap-1 self-center opacity-0 transition group-hover:opacity-100 ${
-        msg.mine ? "order-first" : ""
+        msg.mine ? "order-first" : "order-last"
       }`}
     >
       {onReply && (
@@ -267,7 +269,7 @@ export function MessageBubble({
       )}
       {actions}
       <div
-        className={`pop-in max-w-[76%] px-3.5 py-2 text-[14.5px] leading-snug shadow-sm ${
+        className={`${animate ? "message-bubble-new" : ""} max-w-[76%] px-3 py-1.5 text-[14.5px] leading-snug shadow-sm ${
           msg.mine
             ? "bg-gradient-to-br from-brand-accent to-[#b5533a] text-white"
             : "border border-brand-border bg-brand-surface2 text-brand-text"
@@ -303,7 +305,7 @@ export function MessageBubble({
             <Linkified text={msg.text} mine={msg.mine} />
           </div>
         )}
-        <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${msg.mine ? "text-white/75" : "text-brand-faint"}`}>
+        <div className={`mt-px flex items-center justify-end gap-1 text-[10px] leading-none ${msg.mine ? "text-white/75" : "text-brand-faint"}`}>
           {msg.mine && msg.status === "failed" ? (
             <button
               onClick={onRetry}

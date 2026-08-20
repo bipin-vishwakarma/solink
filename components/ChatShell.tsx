@@ -145,6 +145,8 @@ export function ChatShell({
   const atBottomRef = useRef(true);
   const loadingOlderRef = useRef(false);
   const restoreScrollRef = useRef<number | null>(null); // scrollHeight snapshot for load-older compensation
+  const loadingInitialHistoryRef = useRef(false);
+  const animatedMessageIdsRef = useRef<Set<string>>(new Set());
   const [loadingOlder, setLoadingOlder] = useState(false);
 
   // Live refs so the (stable) message handler always sees current UI state.
@@ -335,14 +337,13 @@ export function ChatShell({
               c.username.toLowerCase() === uname.toLowerCase()
                 ? {
                     ...c,
-                    online: true,
                     lastActivity: Math.max(c.lastActivity || 0, a.ts),
                     unread: isActive ? c.unread : (c.unread || 0) + 1,
                   }
                 : c
             )
           : // auto-add an incoming chat from someone new
-            [{ username: uname, lastActivity: a.ts, online: true, unread: isActive ? 0 : 1 }, ...prev];
+            [{ username: uname, lastActivity: a.ts, unread: isActive ? 0 : 1 }, ...prev];
         persistContacts(next);
         return next;
       });
@@ -396,6 +397,8 @@ export function ChatShell({
     setLastSeen(null);
     setReactionsByMsg({});
     markedRef.current = new Set();
+    loadingInitialHistoryRef.current = false;
+    animatedMessageIdsRef.current = new Set();
 
     const events: TransportEvents = {
       onPeer: (pn, sim, avatarUrl) => {
@@ -403,6 +406,7 @@ export function ChatShell({
         setSimulated(sim);
         setPeerAvatar(avatarUrl ?? null);
         setConnecting(false);
+        loadingInitialHistoryRef.current = false;
         // Keep the sidebar row's avatar in sync with what the transport fetched.
         if (avatarUrl !== undefined) {
           setContacts((prev) =>
@@ -418,6 +422,7 @@ export function ChatShell({
         const { text, replyTo, attachment } = decodeMessage(raw);
         const preview = text || (attachment ? "📎 " + attachment.name : "");
         setPeerTyping(false);
+        if (!loadingInitialHistoryRef.current) animatedMessageIdsRef.current.add(payload.id);
         setMessagesByContact((prev) => {
           const list = prev[activeContact] || [];
           if (list.some((m) => m.id === payload.id)) return prev;
@@ -432,7 +437,7 @@ export function ChatShell({
           setContacts((prev) =>
             prev.map((c) =>
               c.username === activeContact
-                ? { ...c, lastText: preview, online: true, lastActivity: Math.max(c.lastActivity || 0, payload.ts) }
+                ? { ...c, lastText: preview, lastActivity: Math.max(c.lastActivity || 0, payload.ts) }
                 : c
             )
           );
@@ -503,6 +508,7 @@ export function ChatShell({
     };
 
     const t = makeTransportRef.current(activeContact, events);
+    loadingInitialHistoryRef.current = true;
     transportRef.current = t;
     void t.start();
     return () => {
@@ -768,6 +774,7 @@ export function ChatShell({
     // to the server id on success or mark it "failed" (tap-to-retry) on failure.
     const tempId = "tmp-" + crypto.randomUUID();
     const ts = Date.now();
+    animatedMessageIdsRef.current.add(tempId);
     setMessagesByContact((prev) => ({
       ...prev,
       [contact]: [
@@ -787,7 +794,11 @@ export function ChatShell({
         [contact]: list.map((m) =>
           m.id === tempId
             ? payload
-              ? { ...m, id: payload.id, ts: payload.ts, status: undefined }
+              ? (() => {
+                  animatedMessageIdsRef.current.delete(tempId);
+                  animatedMessageIdsRef.current.add(payload.id);
+                  return { ...m, id: payload.id, ts: payload.ts, status: undefined };
+                })()
               : { ...m, status: "failed" }
             : m
         ),
@@ -1292,6 +1303,7 @@ export function ChatShell({
                         )}
                         <MessageBubble
                           msg={m}
+                          animate={animatedMessageIdsRef.current.has(m.id)}
                           grouped={grouped}
                           onReply={setReplyingTo}
                           resolveAttachment={resolveAttachment}
