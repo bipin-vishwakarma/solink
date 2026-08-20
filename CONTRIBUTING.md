@@ -6,11 +6,13 @@ every change as production-sensitive even when the UI change looks small.
 ## Development workflow
 
 1. Start from an up-to-date `main`.
-2. Create a focused branch such as `feat/message-search` or
-   `fix/push-authentication`.
+2. Create a focused `codex/<purpose>` branch (or the project convention used by
+   your client), such as `codex/message-search`.
 3. Keep commits small, reviewable, and independently meaningful.
 4. Run `npm run check` before opening a pull request.
 5. Use the pull-request template and document migrations or environment changes.
+6. Update `README.md` and the relevant files in `docs/` whenever behavior,
+   deployment order, security claims, roadmap status, or user-visible features change.
 
 Never commit `.env.local`, `.vapid.env`, Supabase service-role keys, OAuth
 secrets, private VAPID keys, Vault values, user data, or encryption backups.
@@ -46,7 +48,8 @@ behavior when relevant.
 
 ## Database and Edge Function changes
 
-- Add a new numbered SQL wave; never rewrite deployed user data casually.
+- Add a new ordered file under `supabase/migrations/`; never rewrite an applied
+  migration or deployed user data casually.
 - Prefer additive and idempotent SQL.
 - Enable RLS on every client-accessible table.
 - Define explicit SELECT, INSERT, UPDATE, and DELETE policies.
@@ -67,5 +70,5 @@ A pull request should explain:
 - environment variables or migrations required;
 - rollback steps.
 
-Do not mix deployments with code review. Merge reviewed code first, then follow
-the deployment runbook.
+For backward-compatible frontend dependencies, deploy and verify the migration
+before merging the frontend. Follow `docs/DEPLOYMENT.md` and record the exact order.

@@ -42,6 +42,11 @@ Apply each file once, in order, to a new project:
 10. `supabase/migrations/20260820234500_device_link_retry_safety.sql`
 11. `supabase/migrations/20260821001000_dm_inbox.sql`
 12. `supabase/migrations/20260821010000_conversation_user_state.sql`
+13. `supabase/migrations/20260821020000_server_blocks.sql`
+14. `supabase/migrations/20260821030000_idempotent_message_send.sql`
+15. `supabase/migrations/20260821040000_account_settings_presence.sql`
+16. `supabase/migrations/20260821050000_group_reliability.sql`
+17. `supabase/migrations/20260821051000_fix_idempotent_send_conflict.sql`
 
 Then configure Google OAuth and allowed redirect URLs as described in
 `SETUP-CLOUD.md`.
@@ -104,6 +109,8 @@ trigger. The Edge Function itself must return HTTP 401 when the
 - Existing users register in `account_devices`; five active devices are allowed
   and a concurrent sixth registration is rejected with `DEVICE_LIMIT_REACHED`.
 - Two distinct users can send, receive, reconnect, and load history.
+- A simulated lost response or offline send retries with the same message ID and
+  produces exactly one ciphertext row.
 - Ciphertext—not plaintext—is stored in message rows.
 - Reads, reactions, unsend, and typing behave correctly.
 - Reading a DM on one linked device clears its unread badge on another device.
@@ -112,6 +119,12 @@ trigger. The Edge Function itself must return HTTP 401 when the
 - Conversation members can access their encrypted attachment objects;
   authenticated non-members are denied.
 - Group creation and messaging work for members; non-members are denied.
+- A three-member group is created atomically; legacy/new rows decrypt and older
+  history paginates without duplicates or scroll jumps.
+- Account presence follows Contacts/Nobody/Everyone privacy, becomes unknown
+  when blocked, and expires to minute-rounded last-seen after the TTL.
+- Theme, stealth defaults, message-alert preference, read receipts, and presence
+  visibility synchronize to a second linked device.
 - Push works with the app closed and rejects an invalid webhook secret.
 - `/settings`, `/profile`, manifest, service worker, and Open Graph image load.
 - Vercel and Supabase logs show no new recurring errors.

@@ -23,6 +23,11 @@ acceptance criteria.
 - encrypted passphrase-wrapped device-key backup
 - foreground and background notifications
 - Demo mode, stealth display, and panic IDE
+- five-device approval and encrypted history synchronization
+- account-synced unread, archive, pin, mute, blocks, and preferences
+- ciphertext-only offline DM outbox with idempotent retry
+- privacy-filtered global presence and coarse last-seen
+- atomic small-group creation and paginated group history
 
 ## P0 — Security and recoverability
 
@@ -32,9 +37,10 @@ acceptance criteria.
 - [x] Replace automatic public-key overwrite with an explicit device enrollment
       and recovery flow.
 - [ ] Add peer key-change warnings and human-verifiable fingerprints.
-- [ ] Enforce blocking at the database authorization layer.
+- [x] Enforce blocking at the database authorization layer.
 - [x] Restrict attachment object access to conversation members.
-- [ ] Add CSP, Referrer Policy, MIME sniffing protection, and Permissions Policy.
+- [x] Add Referrer Policy, MIME sniffing protection, framing protection, and Permissions Policy.
+- [ ] Add and stage a complete Content Security Policy.
 - [x] Enable GitHub private vulnerability reporting and dependency alerts.
 
 ## P1 — Messaging reliability
@@ -43,7 +49,8 @@ acceptance criteria.
 - [x] Add automated tests for encryption envelopes and transport deduplication.
 - [ ] Add browser end-to-end tests for two-user DM and group flows.
 - [ ] Cancel stale transport startup work when switching conversations.
-- [ ] Add offline/outbox behavior with deterministic retries.
+- [x] Add offline/outbox behavior with deterministic retries for DM text and replies.
+- [ ] Extend the offline lifecycle to encrypted attachments and groups.
 - [x] Clean up orphaned encrypted attachments after failed message inserts.
 - [ ] Add observable delivery diagnostics without logging plaintext.
 - [ ] Define database backup and restore drills.

@@ -26,6 +26,8 @@ This repository is a production-sensitive encrypted messaging application. Read
 - Work on a focused branch; do not commit directly to `main`.
 - Keep product changes separate from dependency, migration, and documentation
   changes.
+- Keep `README.md` and the relevant `docs/` files aligned with every shipped
+  feature, migration order, security boundary, and roadmap status.
 - Prefer the smallest behavior-preserving change that solves the issue.
 - Do not upgrade major framework versions as part of unrelated feature work.
 - Run `npm run check` before committing. For messaging changes, also run
