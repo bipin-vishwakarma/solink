@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AttachmentRef, ChatMessage, ChatTransport, InboxActivity, ReactionSummary, ReplyRef, TransportEvents } from "@/lib/types";
 import { MessageBubble } from "./MessageBubble";
 import { CodeSnippet } from "./CodeSnippet";
@@ -180,6 +181,119 @@ export function ChatShell({
   notifyRef.current = notifyOn;
   const readReceiptsEnabled = () => localStorage.getItem("solink:readReceipts") !== "0";
   const accountNotificationsEnabled = () => localStorage.getItem("solink:accountNotify") !== "0";
+
+  const activeConversation = activeContact
+    ? contacts.find((item) => item.username.toLowerCase() === activeContact.toLowerCase())
+    : undefined;
+  const activeConversationMuted =
+    !!activeConversation?.mutedUntil && activeConversation.mutedUntil > Date.now();
+
+  const chatOptions = activeContact ? (
+    <>
+      {activeConversation?.conversationId && (
+        <>
+          <button
+            onClick={() => {
+              setHeaderMenuOpen(false);
+              void updateActiveConversation("pin", !activeConversation.pinned);
+            }}
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
+          >
+            <span>📌</span> {activeConversation.pinned ? "Unpin chat" : "Pin chat"}
+          </button>
+          <button
+            onClick={() => {
+              setHeaderMenuOpen(false);
+              void updateActiveConversation(
+                "mute",
+                activeConversationMuted ? null : Date.now() + 1000 * 60 * 60 * 24 * 365 * 10
+              );
+            }}
+            className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
+          >
+            <span>🔕</span> {activeConversationMuted ? "Unmute chat" : "Mute chat"}
+          </button>
+          <button
+            onClick={() => {
+              setHeaderMenuOpen(false);
+              void updateActiveConversation("archive", !activeConversation.archived);
+            }}
+            className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
+          >
+            <span>🗄️</span> {activeConversation.archived ? "Unarchive chat" : "Archive chat"}
+          </button>
+        </>
+      )}
+      <button
+        onClick={() => {
+          setHeaderMenuOpen(false);
+          setSearchOpen(true);
+          setSearchQuery("");
+        }}
+        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5 sm:hidden"
+      >
+        <span>🔍</span> Search messages
+      </button>
+      <button
+        onClick={() => {
+          setHeaderMenuOpen(false);
+          void toggleNotify();
+        }}
+        className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5 md:hidden"
+      >
+        <span>{notifyOn ? "🔔" : "🔕"}</span> {notifyOn ? "Notifications on" : "Enable notifications"}
+      </button>
+      <button
+        onClick={() => {
+          setHeaderMenuOpen(false);
+          setShowWire((value) => !value);
+        }}
+        className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5 lg:hidden"
+      >
+        <span>🛡</span> {showWire ? "Hide encrypted wire" : "Show encrypted wire"}
+      </button>
+      <button
+        onClick={() => {
+          setHeaderMenuOpen(false);
+          setStealth((value) => !value);
+        }}
+        className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5 lg:hidden"
+      >
+        <span>{stealth ? "🥷" : "🕶"}</span> {stealth ? "Exit stealth" : "Stealth mode"}
+      </button>
+      <button
+        onClick={() => {
+          setHeaderMenuOpen(false);
+          setIde(true);
+        }}
+        className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5 lg:hidden"
+      >
+        <span>🚨</span> Panic mode
+      </button>
+      {!setConversationArchived && (
+        <button
+          onClick={() => {
+            setHeaderMenuOpen(false);
+            if (confirm(`Remove your chat with @${activeContact}? Your local history is cleared.`))
+              removeContact(activeContact);
+          }}
+          className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
+        >
+          <span>🗑️</span> Remove local chat
+        </button>
+      )}
+      <button
+        onClick={() => {
+          setHeaderMenuOpen(false);
+          if (confirm(`Block @${activeContact}? They won't be able to message you.`))
+            void blockContact(activeContact);
+        }}
+        className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-red-400 hover:bg-white/5"
+      >
+        <span>🚫</span> Block @{activeContact}
+      </button>
+    </>
+  ) : null;
 
   // restore notification preference
   useEffect(() => {
@@ -1397,11 +1511,11 @@ export function ChatShell({
                     ⋯
                   </button>
                   {headerMenuOpen && (
-                    <>
+                    <div className="hidden sm:block">
                       <button
                         type="button"
                         aria-label="Close chat options"
-                        className="fixed inset-0 z-40 cursor-default bg-black/35 backdrop-blur-[1px] sm:bg-transparent sm:backdrop-blur-none"
+                        className="fixed inset-0 z-40 cursor-default"
                         onClick={() => setHeaderMenuOpen(false)}
                       />
                       <div
@@ -1409,132 +1523,11 @@ export function ChatShell({
                         role="dialog"
                         aria-labelledby="chat-options-title"
                         tabIndex={-1}
-                        className="pop-in fixed inset-x-2 bottom-[calc(0.5rem+var(--safe-bottom))] z-50 max-h-[min(72dvh,34rem)] overflow-y-auto overscroll-contain rounded-2xl border border-brand-border bg-brand-surface2 shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-11 sm:max-h-[calc(100dvh-5rem)] sm:w-56 sm:rounded-xl"
+                        className="pop-in absolute right-0 top-11 z-50 max-h-[calc(100dvh-5rem)] w-56 overflow-y-auto overscroll-contain rounded-xl border border-brand-border bg-brand-surface2 shadow-2xl"
                       >
-                        <div className="sticky top-0 z-10 flex items-center border-b border-brand-border bg-brand-surface2/95 px-4 py-3 backdrop-blur sm:hidden">
-                          <span id="chat-options-title" className="min-w-0 flex-1 truncate text-sm font-semibold text-brand-text">
-                            Chat options
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setHeaderMenuOpen(false)}
-                            className="pressable grid h-8 w-8 place-items-center rounded-full text-lg text-brand-muted hover:bg-white/5 hover:text-brand-text"
-                            aria-label="Close chat options"
-                          >
-                            ×
-                          </button>
-                        </div>
-                        {(() => {
-                          const current = contacts.find(
-                            (item) => item.username.toLowerCase() === activeContact.toLowerCase()
-                          );
-                          if (!current?.conversationId) return null;
-                          const muted = !!current.mutedUntil && current.mutedUntil > Date.now();
-                          return (
-                            <>
-                              <button
-                                onClick={() => {
-                                  setHeaderMenuOpen(false);
-                                  void updateActiveConversation("pin", !current.pinned);
-                                }}
-                                className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
-                              >
-                                <span>📌</span> {current.pinned ? "Unpin chat" : "Pin chat"}
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setHeaderMenuOpen(false);
-                                  void updateActiveConversation(
-                                    "mute",
-                                    muted ? null : Date.now() + 1000 * 60 * 60 * 24 * 365 * 10
-                                  );
-                                }}
-                                className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
-                              >
-                                <span>🔕</span> {muted ? "Unmute chat" : "Mute chat"}
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setHeaderMenuOpen(false);
-                                  void updateActiveConversation("archive", !current.archived);
-                                }}
-                                className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
-                              >
-                                <span>🗄️</span> {current.archived ? "Unarchive chat" : "Archive chat"}
-                              </button>
-                            </>
-                          );
-                        })()}
-                        <button
-                          onClick={() => {
-                            setHeaderMenuOpen(false);
-                            setSearchOpen(true);
-                            setSearchQuery("");
-                          }}
-                          className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5 sm:hidden"
-                        >
-                          <span>🔍</span> Search messages
-                        </button>
-                        <button
-                          onClick={() => {
-                            setHeaderMenuOpen(false);
-                            void toggleNotify();
-                          }}
-                          className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5 md:hidden"
-                        >
-                          <span>{notifyOn ? "🔔" : "🔕"}</span> {notifyOn ? "Notifications on" : "Enable notifications"}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setHeaderMenuOpen(false);
-                            setShowWire((value) => !value);
-                          }}
-                          className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5 lg:hidden"
-                        >
-                          <span>🛡</span> {showWire ? "Hide encrypted wire" : "Show encrypted wire"}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setHeaderMenuOpen(false);
-                            setStealth((value) => !value);
-                          }}
-                          className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5 lg:hidden"
-                        >
-                          <span>{stealth ? "🥷" : "🕶"}</span> {stealth ? "Exit stealth" : "Stealth mode"}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setHeaderMenuOpen(false);
-                            setIde(true);
-                          }}
-                          className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5 lg:hidden"
-                        >
-                          <span>🚨</span> Panic mode
-                        </button>
-                        {!setConversationArchived && (
-                          <button
-                            onClick={() => {
-                              setHeaderMenuOpen(false);
-                              if (confirm(`Remove your chat with @${activeContact}? Your local history is cleared.`))
-                                removeContact(activeContact);
-                            }}
-                            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
-                          >
-                            <span>🗑️</span> Remove local chat
-                          </button>
-                        )}
-                        <button
-                          onClick={() => {
-                            setHeaderMenuOpen(false);
-                            if (confirm(`Block @${activeContact}? They won't be able to message you.`))
-                              void blockContact(activeContact);
-                          }}
-                          className="flex w-full items-center gap-3 border-t border-brand-border px-4 py-2.5 text-left text-sm text-red-400 hover:bg-white/5"
-                        >
-                          <span>🚫</span> Block @{activeContact}
-                        </button>
+                        {chatOptions}
                       </div>
-                    </>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1726,6 +1719,42 @@ export function ChatShell({
           onCreate={handleCreateGroup}
         />
       )}
+
+      {headerMenuOpen && activeContact && typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-[100] sm:hidden">
+            <button
+              type="button"
+              aria-label="Close chat options"
+              className="absolute inset-0 cursor-default bg-black/55 backdrop-blur-[1px]"
+              onClick={() => setHeaderMenuOpen(false)}
+            />
+            <div
+              ref={headerMenuRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="mobile-chat-options-title"
+              tabIndex={-1}
+              className="slide-up absolute inset-x-2 bottom-[calc(0.5rem+var(--safe-bottom))] max-h-[min(72dvh,34rem)] overflow-y-auto overscroll-contain rounded-2xl border border-brand-border bg-brand-surface2 shadow-2xl"
+            >
+              <div className="sticky top-0 z-10 flex items-center border-b border-brand-border bg-brand-surface2 px-4 py-3">
+                <span id="mobile-chat-options-title" className="min-w-0 flex-1 truncate text-sm font-semibold text-brand-text">
+                  Chat options
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setHeaderMenuOpen(false)}
+                  className="pressable grid h-8 w-8 place-items-center rounded-full text-lg text-brand-muted hover:bg-white/5 hover:text-brand-text"
+                  aria-label="Close chat options"
+                >
+                  ×
+                </button>
+              </div>
+              {chatOptions}
+            </div>
+          </div>,
+          document.body
+        )}
     </main>
   );
 }
