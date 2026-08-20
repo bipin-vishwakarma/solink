@@ -96,14 +96,11 @@ export function Sidebar({
       {/* profile header */}
       <div className="flex items-center gap-3 border-b border-brand-border px-4 pb-3 pt-[calc(0.75rem+var(--safe-top))]">
         <Link href="/profile" className="transition hover:opacity-80" title="Your profile">
-          <Avatar name={myName} size={38} online src={myAvatarUrl} />
+          <Avatar name={myName} size={38} src={myAvatarUrl} />
         </Link>
         <Link href="/profile" className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-brand-text">{myName}</div>
-          <div className="flex items-center gap-1 text-[11px] text-brand-online/90">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-online" />
-            online
-          </div>
+          <div className="text-[11px] text-brand-muted">Your profile</div>
         </Link>
         <Link
           href="/settings"
@@ -234,7 +231,7 @@ export function Sidebar({
                 active ? "bg-brand-accentSoft" : "hover:bg-white/5 active:bg-white/10"
               }`}
             >
-              <Avatar name={c.username} size={40} online={c.online} src={c.avatarUrl} />
+              <Avatar name={c.username} size={40} src={c.avatarUrl} />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-brand-text">{c.username}</div>
                 <div className={`truncate text-xs ${c.unread ? "font-medium text-brand-text" : "text-brand-muted"}`}>
