@@ -13,6 +13,10 @@ interface InboxRow {
   ciphertext: string | null;
   iv: string | null;
   message_created_at: string | null;
+  unread_count: number | string | null;
+  archived_at: string | null;
+  pinned_at: string | null;
+  muted_until: string | null;
 }
 
 export interface CloudInboxItem {
@@ -21,6 +25,10 @@ export interface CloudInboxItem {
   avatarUrl: string | null;
   lastText: string;
   lastActivity: number;
+  unread: number;
+  archived: boolean;
+  pinned: boolean;
+  mutedUntil: number | null;
 }
 
 function previewText(raw: string): string {
@@ -36,7 +44,7 @@ export async function loadCloudInbox(
   sb: SupabaseClient,
   keyPair: CryptoKeyPair
 ): Promise<CloudInboxItem[]> {
-  const { data, error } = await sb.rpc("list_dm_inbox", { page_size: 50 });
+  const { data, error } = await sb.rpc("list_dm_inbox_v2", { page_size: 1000 });
   if (error) throw error;
   const items: CloudInboxItem[] = [];
   const seenPeers = new Set<string>();
@@ -61,6 +69,13 @@ export async function loadCloudInbox(
       avatarUrl: row.peer_avatar_url,
       lastText,
       lastActivity: row.message_created_at ? new Date(row.message_created_at).getTime() : 0,
+      unread: Number(row.unread_count || 0),
+      archived: !!row.archived_at,
+      pinned: !!row.pinned_at,
+      mutedUntil:
+        row.muted_until && new Date(row.muted_until).getTime() > Date.now()
+          ? new Date(row.muted_until).getTime()
+          : null,
     });
   }
   return items;

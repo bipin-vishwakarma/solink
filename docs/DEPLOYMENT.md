@@ -38,6 +38,10 @@ Apply each file once, in order, to a new project:
 6. `supabase/wave8-security-hardening.sql`
 7. `supabase/migrations/20260820213000_account_devices.sql`
 8. `supabase/migrations/20260820223000_attachment_member_access.sql`
+9. `supabase/migrations/20260820233000_device_link_requests.sql`
+10. `supabase/migrations/20260820234500_device_link_retry_safety.sql`
+11. `supabase/migrations/20260821001000_dm_inbox.sql`
+12. `supabase/migrations/20260821010000_conversation_user_state.sql`
 
 Then configure Google OAuth and allowed redirect URLs as described in
 `SETUP-CLOUD.md`.
@@ -102,6 +106,8 @@ trigger. The Edge Function itself must return HTTP 401 when the
 - Two distinct users can send, receive, reconnect, and load history.
 - Ciphertext—not plaintext—is stored in message rows.
 - Reads, reactions, unsend, and typing behave correctly.
+- Reading a DM on one linked device clears its unread badge on another device.
+- Pin, mute, and archive state follow the account across linked devices.
 - Encrypted image/file upload and download work.
 - Conversation members can access their encrypted attachment objects;
   authenticated non-members are denied.

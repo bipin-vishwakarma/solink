@@ -193,6 +193,38 @@ export function CloudApp() {
     return loadCloudInbox(sb, keyPair);
   }, [keyPair, sb]);
 
+  const markConversationRead = useCallback(async (conversationId: string, throughMessageId: string) => {
+    const { error } = await sb.rpc("mark_conversation_read", {
+      target_conversation: conversationId,
+      through_message: throughMessageId,
+    });
+    if (error) throw error;
+  }, [sb]);
+
+  const setConversationPinned = useCallback(async (conversationId: string, pinned: boolean) => {
+    const { error } = await sb.rpc("set_conversation_pinned", {
+      target_conversation: conversationId,
+      should_pin: pinned,
+    });
+    if (error) throw error;
+  }, [sb]);
+
+  const setConversationArchived = useCallback(async (conversationId: string, archived: boolean) => {
+    const { error } = await sb.rpc("set_conversation_archived", {
+      target_conversation: conversationId,
+      should_archive: archived,
+    });
+    if (error) throw error;
+  }, [sb]);
+
+  const setConversationMuted = useCallback(async (conversationId: string, mutedUntil: number | null) => {
+    const { error } = await sb.rpc("set_conversation_muted", {
+      target_conversation: conversationId,
+      mute_until: mutedUntil ? new Date(mutedUntil).toISOString() : null,
+    });
+    if (error) throw error;
+  }, [sb]);
+
   const makeGroupTransport = useCallback(
     (groupId: string, events: GroupEvents) => {
       const ctx: GroupContext = {
@@ -459,6 +491,10 @@ export function CloudApp() {
       makeTransport={makeTransport}
       makeInboxSubscription={makeInboxSubscription}
       loadInbox={loadInbox}
+      markConversationRead={markConversationRead}
+      setConversationPinned={setConversationPinned}
+      setConversationArchived={setConversationArchived}
+      setConversationMuted={setConversationMuted}
       validateUsername={validateUsername}
       lookupUser={lookupUser}
       fetchProfiles={fetchProfiles}
