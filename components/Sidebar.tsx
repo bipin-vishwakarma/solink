@@ -238,7 +238,7 @@ export function Sidebar({
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-brand-text">{c.username}</div>
                 <div className={`truncate text-xs ${c.unread ? "font-medium text-brand-text" : "text-brand-muted"}`}>
-                  {c.lastText || "Say hi 👋"}
+                  {c.lastText || "No messages yet"}
                 </div>
               </div>
               {c.unread ? (

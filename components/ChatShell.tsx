@@ -65,6 +65,7 @@ export function ChatShell({
   myAvatarUrl,
   makeTransport,
   makeInboxSubscription,
+  loadInbox,
   validateUsername,
   lookupUser,
   fetchProfiles,
@@ -77,6 +78,7 @@ export function ChatShell({
   myAvatarUrl?: string | null;
   makeTransport: TransportFactory;
   makeInboxSubscription?: (onActivity: (a: InboxActivity) => void) => () => void;
+  loadInbox?: () => Promise<Array<{ conversationId: string; username: string; avatarUrl: string | null; lastText: string; lastActivity: number }>>;
   validateUsername?: (username: string) => Promise<boolean>;
   lookupUser?: (username: string) => Promise<{ username: string; avatarUrl: string | null } | null>;
   fetchProfiles?: (usernames: string[]) => Promise<{ username: string; avatarUrl: string | null }[]>;
@@ -169,6 +171,34 @@ export function ChatShell({
   const messages = (activeContact && messagesByContact[activeContact]) || [];
   const contactsKey = `solink:contacts:${myName.toLowerCase()}`;
 
+  const reconcileInbox = useCallback(async () => {
+    if (!loadInbox) return;
+    try {
+      const serverContacts = await loadInbox();
+      setContacts((current) => {
+        const local = new Map(current.map((contact) => [contact.username.toLowerCase(), contact]));
+        const synced = serverContacts.map((item) => {
+          const existing = local.get(item.username.toLowerCase());
+          local.delete(item.username.toLowerCase());
+          return {
+            ...existing,
+            username: item.username,
+            avatarUrl: item.avatarUrl,
+            lastText:
+              (existing?.lastActivity || 0) > item.lastActivity
+                ? existing?.lastText
+                : item.lastText,
+            lastActivity: Math.max(existing?.lastActivity || 0, item.lastActivity),
+          };
+        });
+        // Keep locally searched draft contacts that have no server conversation.
+        return [...synced, ...local.values()];
+      });
+    } catch {
+      // Inbox synchronization is optional and must never block messaging.
+    }
+  }, [loadInbox]);
+
   // load saved contacts for this identity
   useEffect(() => {
     try {
@@ -178,6 +208,22 @@ export function ChatShell({
       /* ignore */
     }
   }, [contactsKey]);
+
+  useEffect(() => {
+    if (!loadInbox) return;
+    void reconcileInbox();
+    const reconcile = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) void reconcileInbox();
+    };
+    const timer = window.setInterval(reconcile, 30_000);
+    window.addEventListener("online", reconcile);
+    document.addEventListener("visibilitychange", reconcile);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("online", reconcile);
+      document.removeEventListener("visibilitychange", reconcile);
+    };
+  }, [loadInbox, reconcileInbox]);
 
   const persistContacts = useCallback(
     (list: Contact[]) => {
@@ -271,6 +317,10 @@ export function ChatShell({
   useEffect(() => {
     if (!inboxRef.current) return;
     const unsub = inboxRef.current((a) => {
+      if (!a.fromUsername) {
+        void reconcileInbox();
+        return;
+      }
       const uname = a.fromUsername;
       if (blockedRef.current.has(uname.toLowerCase())) return; // ignore blocked senders
       const isActive = uname.toLowerCase() === (activeContactRef.current || "").toLowerCase();
@@ -298,10 +348,11 @@ export function ChatShell({
           showMessageNotification(uname, "sent you a message", stealthRef.current || ideRef.current);
         }
       }
+      void reconcileInbox();
     });
     return unsub;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reconcileInbox]);
 
   // clear a chat's unread badge when you open it
   useEffect(() => {
