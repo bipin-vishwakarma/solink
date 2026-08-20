@@ -47,7 +47,7 @@ export interface PeerInfo {
 // A new message arriving in ANY of the user's conversations (drives the live inbox:
 // recent-on-top sorting, unread badges, and cross-chat notifications).
 export interface InboxActivity {
-  fromUsername: string;
+  fromUsername?: string;
   ts: number;
 }
 

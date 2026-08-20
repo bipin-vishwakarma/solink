@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:core": "vitest run tests/crypto.test.ts tests/deviceKeyState.test.ts tests/deviceRegistry.test.ts tests/deviceLink.test.ts tests/envelope.test.ts tests/supabaseTransport.test.ts",
+    "test:core": "vitest run tests/crypto.test.ts tests/cloudInbox.test.ts tests/deviceKeyState.test.ts tests/deviceRegistry.test.ts tests/deviceLink.test.ts tests/envelope.test.ts tests/supabaseTransport.test.ts",
     "check": "npm run lint && npm run typecheck && npm test && npm run build"
   },
   "engines": {

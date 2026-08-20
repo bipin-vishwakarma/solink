@@ -9,6 +9,7 @@ import { registerCurrentDevice, startDeviceHeartbeat } from "@/lib/deviceRegistr
 import { SupabaseTransport, type CloudContext } from "@/lib/supabaseTransport";
 import { GroupTransport, type GroupContext, type GroupEvents } from "@/lib/groupTransport";
 import type { InboxActivity } from "@/lib/types";
+import { loadCloudInbox } from "@/lib/cloudInbox";
 import { ChatShell, type TransportFactory } from "./ChatShell";
 import { LogoMark } from "./Logo";
 import { DeviceLinkFlow } from "./DeviceLinkFlow";
@@ -161,7 +162,11 @@ export function CloudApp() {
           { event: "INSERT", schema: "public", table: "messages" },
           async (payload) => {
             const row = payload.new as { sender_id: string; created_at: string };
-            if (!row || row.sender_id === userId) return;
+            if (!row) return;
+            if (row.sender_id === userId) {
+              onActivity({ ts: new Date(row.created_at).getTime() });
+              return;
+            }
             let uname = nameCache.get(row.sender_id);
             if (!uname) {
               const { data } = await sb
@@ -182,6 +187,11 @@ export function CloudApp() {
     },
     [sb, userId]
   );
+
+  const loadInbox = useCallback(async () => {
+    if (!keyPair) return [];
+    return loadCloudInbox(sb, keyPair);
+  }, [keyPair, sb]);
 
   const makeGroupTransport = useCallback(
     (groupId: string, events: GroupEvents) => {
@@ -448,6 +458,7 @@ export function CloudApp() {
       myAvatarUrl={(profile as Profile).avatar_url}
       makeTransport={makeTransport}
       makeInboxSubscription={makeInboxSubscription}
+      loadInbox={loadInbox}
       validateUsername={validateUsername}
       lookupUser={lookupUser}
       fetchProfiles={fetchProfiles}
