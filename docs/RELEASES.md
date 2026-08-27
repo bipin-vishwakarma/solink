@@ -6,6 +6,18 @@ release pull request. Already-open web and installed-PWA sessions poll the
 uncached `/version.json` endpoint and offer an Update button when its version
 differs from their bundled version.
 
+## 0.2.2 - 2026-08-27
+
+- Keep mobile on-screen keyboard open across multiple message sends by preventing
+  Send button focus theft, adding synchronous textarea refocusing, and setting
+  `enterKeyHint="send"`.
+- Prevent accidental browser text selection and native OS copy callouts on long
+  press by disabling touch callout and selection highlights on message bubbles.
+- Add mobile message action sheet portal triggered on long-press (450ms) with
+  quick emoji reactions, copy text, reply, and unsend actions.
+- Provide visual feedback on copy with green checkmark state and floating toast pill.
+- Add dismiss button to in-chat search and real-time offline status indicator.
+
 ## 0.2.1 - 2026-08-21
 
 - Keep mobile chat options above message content by rendering the action sheet

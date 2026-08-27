@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AttachmentMeta, AttachmentRef, ChatMessage, ReactionSummary } from "@/lib/types";
 
 const QUICK_REACTIONS = ["❤️", "👍", "😂", "😮", "😢", "🙏"];
@@ -174,11 +175,23 @@ export function MessageBubble({
   animate?: boolean;
 }) {
   const [showReactBar, setShowReactBar] = useState(false);
-  const touchStartX = useRef<number | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const didLongPress = useRef(false);
 
   function copy() {
-    navigator.clipboard?.writeText(msg.text).catch(() => {});
+    if (!msg.text) return;
+    navigator.clipboard?.writeText(msg.text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    }).catch(() => {});
   }
+
+  useEffect(() => () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+  }, []);
 
   const actions = (
     <div
@@ -199,13 +212,20 @@ export function MessageBubble({
       )}
       <button
         onClick={copy}
-        className="rounded-full bg-brand-surface2 p-1.5 text-brand-muted hover:text-brand-text"
-        title="Copy"
+        className="rounded-full bg-brand-surface2 p-1.5 text-brand-muted hover:text-brand-text transition"
+        title={copied ? "Copied!" : "Copy"}
+        aria-label={copied ? "Copied to clipboard" : "Copy"}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-          <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.8" />
-          <path d="M5 15V5a2 2 0 012-2h10" stroke="currentColor" strokeWidth="1.8" />
-        </svg>
+        {copied ? (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-emerald-400">
+            <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.8" />
+            <path d="M5 15V5a2 2 0 012-2h10" stroke="currentColor" strokeWidth="1.8" />
+          </svg>
+        )}
       </button>
       {onReact && (
         <button
@@ -239,14 +259,54 @@ export function MessageBubble({
     <div
       className={`group relative flex items-center gap-2 ${msg.mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-2"}`}
       onTouchStart={(e) => {
-        touchStartX.current = e.touches[0]?.clientX ?? null;
+        const touch = e.touches[0];
+        if (!touch) return;
+        didLongPress.current = false;
+        touchStartPos.current = { x: touch.clientX, y: touch.clientY };
+        if (longPressTimer.current) clearTimeout(longPressTimer.current);
+        longPressTimer.current = setTimeout(() => {
+          didLongPress.current = true;
+          if (typeof navigator !== "undefined" && navigator.vibrate) {
+            try { navigator.vibrate(20); } catch {}
+          }
+          setMobileSheetOpen(true);
+        }, 450);
+      }}
+      onTouchMove={(e) => {
+        const touch = e.touches[0];
+        if (!touch || !touchStartPos.current) return;
+        const dx = Math.abs(touch.clientX - touchStartPos.current.x);
+        const dy = Math.abs(touch.clientY - touchStartPos.current.y);
+        if (dx > 10 || dy > 10) {
+          if (longPressTimer.current) {
+            clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+          }
+        }
       }}
       onTouchEnd={(e) => {
-        const start = touchStartX.current;
-        touchStartX.current = null;
-        if (start == null || !onReply) return;
-        const dx = (e.changedTouches[0]?.clientX ?? start) - start;
+        if (longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+        }
+        const start = touchStartPos.current;
+        touchStartPos.current = null;
+        if (didLongPress.current || start == null || !onReply) return;
+        const dx = (e.changedTouches[0]?.clientX ?? start.x) - start.x;
         if (Math.abs(dx) > 55) onReply(msg);
+      }}
+      onTouchCancel={() => {
+        if (longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+        }
+        touchStartPos.current = null;
+        didLongPress.current = false;
+      }}
+      onContextMenu={(e) => {
+        if (touchStartPos.current || didLongPress.current) {
+          e.preventDefault();
+        }
       }}
     >
       {showReactBar && onReact && (
@@ -269,7 +329,7 @@ export function MessageBubble({
       )}
       {actions}
       <div
-        className={`${animate ? "message-bubble-new" : ""} max-w-[76%] px-3 py-1.5 text-[14.5px] leading-snug shadow-sm ${
+        className={`${animate ? "message-bubble-new" : ""} max-w-[76%] select-none px-3 py-1.5 text-[14.5px] leading-snug shadow-sm [-webkit-touch-callout:none] ${
           msg.mine
             ? "bg-gradient-to-br from-brand-accent to-[#b5533a] text-white"
             : "border border-brand-border bg-brand-surface2 text-brand-text"
@@ -301,7 +361,7 @@ export function MessageBubble({
           />
         )}
         {msg.text && (
-          <div className="whitespace-pre-wrap break-words">
+          <div className="select-none whitespace-pre-wrap break-words [-webkit-touch-callout:none]">
             <Linkified text={msg.text} mine={msg.mine} />
           </div>
         )}
@@ -349,6 +409,104 @@ export function MessageBubble({
           </div>
         )}
       </div>
+
+      {copied && typeof document !== "undefined" &&
+        createPortal(
+          <div className="pop-in pointer-events-none fixed top-4 left-1/2 -translate-x-1/2 z-[120] flex items-center gap-2 rounded-full border border-brand-border bg-brand-surface2/95 px-3 py-1.5 text-xs font-medium text-emerald-400 shadow-xl backdrop-blur">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span>Copied to clipboard</span>
+          </div>,
+          document.body
+        )}
+
+      {mobileSheetOpen && typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-[100] sm:hidden">
+            <button
+              type="button"
+              aria-label="Close message menu"
+              className="absolute inset-0 cursor-default bg-black/55 backdrop-blur-[1px]"
+              onClick={() => setMobileSheetOpen(false)}
+            />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Message options"
+              className="slide-up absolute inset-x-2 bottom-[calc(0.5rem+var(--safe-bottom))] max-h-[min(72dvh,34rem)] overflow-y-auto overscroll-contain rounded-2xl border border-brand-border bg-brand-surface2 p-3 shadow-2xl"
+            >
+              {onReact && (
+                <div className="mb-3 flex items-center justify-around border-b border-brand-border pb-3">
+                  {QUICK_REACTIONS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => {
+                        onReact(emoji);
+                        setMobileSheetOpen(false);
+                      }}
+                      className="pressable text-2xl leading-none transition hover:scale-125 active:scale-95"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="space-y-1">
+                {msg.text && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      copy();
+                      setMobileSheetOpen(false);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-brand-text hover:bg-white/5 active:bg-white/10"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.8" />
+                      <path d="M5 15V5a2 2 0 012-2h10" stroke="currentColor" strokeWidth="1.8" />
+                    </svg>
+                    <span>Copy text</span>
+                  </button>
+                )}
+                {onReply && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onReply(msg);
+                      setMobileSheetOpen(false);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-brand-text hover:bg-white/5 active:bg-white/10"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <path d="M9 17l-6-5 6-5v3c6 0 9 3 10 8-2.5-2.5-5-4-10-4v3z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                    </svg>
+                    <span>Reply</span>
+                  </button>
+                )}
+                {msg.mine && onDelete && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileSheetOpen(false);
+                      if (msg.status === "failed" || confirm("Unsend this message for everyone?")) {
+                        onDelete();
+                      }
+                    }}
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-red-400 hover:bg-red-500/10 active:bg-red-500/20"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    <span>Unsend message</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
