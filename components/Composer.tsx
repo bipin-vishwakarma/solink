@@ -41,6 +41,7 @@ export function Composer({
   const streamRef = useRef<MediaStream | null>(null);
   const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sendOnStopRef = useRef(false);
+  const lastSubmitRef = useRef(0);
 
   async function startRecording() {
     if (!onAttach || recording) return;
@@ -79,12 +80,16 @@ export function Composer({
     recorderRef.current?.stop();
   }
 
-  // auto-grow the textarea up to a cap
+  // auto-grow the textarea up to a cap without collapsing to 0px
   useEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
-    ta.style.height = "0px";
-    ta.style.height = Math.min(ta.scrollHeight, 140) + "px";
+    if (!text) {
+      ta.style.height = "";
+      return;
+    }
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
   }, [text]);
 
   function stopTyping() {
@@ -106,18 +111,31 @@ export function Composer({
   }
 
   function submit() {
+    const now = Date.now();
+    if (now - lastSubmitRef.current < 200) return;
     const t = text.trim();
     if (!t) return;
+    lastSubmitRef.current = now;
     onSend(t);
     setText("");
     setShowEmoji(false);
     stopTyping();
     if (idleTimer.current) clearTimeout(idleTimer.current);
+    // Keep textarea focused so mobile virtual keyboard stays open
+    if (taRef.current) {
+      taRef.current.focus();
+      requestAnimationFrame(() => {
+        taRef.current?.focus();
+      });
+    }
   }
 
   useEffect(() => () => {
     if (idleTimer.current) clearTimeout(idleTimer.current);
   }, []);
+
+  const hasText = Boolean(text.trim());
+  const canSend = hasText || !onAttach;
 
   return (
     <div className="relative border-t border-brand-border bg-brand-surface/70 px-2 pt-2 pb-[calc(0.5rem+var(--safe-bottom))] backdrop-blur sm:px-3 sm:pt-3 sm:pb-[calc(0.75rem+var(--safe-bottom))]">
@@ -224,6 +242,7 @@ export function Composer({
             value={text}
             rows={1}
             disabled={disabled}
+            enterKeyHint="send"
             onChange={(e) => handleChange(e.target.value)}
             onBlur={stopTyping}
             onKeyDown={(e) => {
@@ -233,35 +252,50 @@ export function Composer({
               }
             }}
             placeholder="Type a message"
-            className="min-w-0 max-h-[140px] min-h-[44px] flex-1 resize-none rounded-2xl border border-brand-border bg-black/25 px-3 py-2.5 text-brand-text outline-none focus:border-brand-accent disabled:opacity-50 sm:px-4"
+            className="min-w-0 max-h-[140px] min-h-[44px] flex-1 resize-none overflow-y-auto rounded-2xl border border-brand-border bg-black/25 px-3 py-2.5 text-brand-text outline-none focus:border-brand-accent disabled:opacity-50 sm:px-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
           />
 
-          {text.trim() || !onAttach ? (
-            <button
-              onClick={submit}
-              disabled={disabled || !text.trim()}
-              className="pressable grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-accent text-white transition hover:bg-brand-accentHover disabled:opacity-40"
-              aria-label="Send"
-              type="button"
-            >
+          <button
+            key="composer-action-btn"
+            type="button"
+            onPointerDown={(e) => {
+              if (canSend) {
+                e.preventDefault();
+              }
+            }}
+            onMouseDown={(e) => {
+              if (canSend) {
+                e.preventDefault();
+              }
+            }}
+            onTouchEnd={(e) => {
+              if (canSend && hasText) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            onClick={() => {
+              if (canSend) {
+                if (hasText) submit();
+              } else {
+                startRecording();
+              }
+            }}
+            disabled={disabled || (canSend && !hasText)}
+            className="pressable grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-accent text-white transition hover:bg-brand-accentHover disabled:opacity-40"
+            aria-label={canSend ? "Send" : "Record voice note"}
+          >
+            {canSend ? (
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                 <path d="M4 12l16-8-6 16-3-6-7-2z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
               </svg>
-            </button>
-          ) : (
-            <button
-              onClick={startRecording}
-              disabled={disabled}
-              className="pressable grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-accent text-white transition hover:bg-brand-accentHover disabled:opacity-40"
-              aria-label="Record voice note"
-              type="button"
-            >
+            ) : (
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                 <rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="2" />
                 <path d="M5 11a7 7 0 0014 0M12 18v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
-            </button>
-          )}
+            )}
+          </button>
         </div>
       )}
     </div>

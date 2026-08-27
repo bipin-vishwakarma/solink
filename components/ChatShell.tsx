@@ -143,9 +143,23 @@ export function ChatShell({
   >({});
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== "undefined" ? navigator.onLine : true
+  );
   const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
   const [pendingForward, setPendingForward] = useState<{ file: File; target: string } | null>(null);
   const [cropState, setCropState] = useState<{ file: File } | null>(null);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   const transportRef = useRef<ChatTransport | null>(null);
   const makeTransportRef = useRef(makeTransport);
@@ -1534,14 +1548,25 @@ export function ChatShell({
             </header>
 
             {searchOpen && (
-              <div className="border-b border-brand-border bg-brand-surface/70 px-3 py-2 backdrop-blur">
+              <div className="flex items-center gap-2 border-b border-brand-border bg-brand-surface/70 px-3 py-2 backdrop-blur">
                 <input
                   autoFocus
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search in this chat…"
-                  className="w-full rounded-full border border-brand-border bg-black/25 px-4 py-2 text-sm text-brand-text outline-none focus:border-brand-accent"
+                  className="min-w-0 flex-1 rounded-full border border-brand-border bg-black/25 px-4 py-2 text-sm text-brand-text outline-none focus:border-brand-accent"
                 />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchOpen(false);
+                    setSearchQuery("");
+                  }}
+                  className="pressable grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm text-brand-muted hover:bg-white/5 hover:text-brand-text"
+                  aria-label="Close search"
+                >
+                  ✕
+                </button>
               </div>
             )}
 
@@ -1675,6 +1700,13 @@ export function ChatShell({
             {notice && (
               <div className="border-t border-brand-border bg-brand-accent/10 px-4 py-1.5 text-center text-xs text-brand-accent">
                 {notice}
+              </div>
+            )}
+
+            {!isOnline && (
+              <div className="flex items-center justify-center gap-1.5 border-t border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-center text-xs text-amber-300">
+                <span>📡</span>
+                <span>Offline · Messages will be queued and sent once reconnected</span>
               </div>
             )}
 
