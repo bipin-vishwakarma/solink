@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AttachmentMeta, AttachmentRef, ChatMessage, ReactionSummary } from "@/lib/types";
+import { VoiceNotePlayer } from "./VoiceNotePlayer";
 
 const QUICK_REACTIONS = ["❤️", "👍", "😂", "😮", "😢", "🙏"];
 
@@ -58,12 +59,14 @@ function AttachmentView({
 
   if (isAudio) {
     return (
-      <div className="mb-1 flex items-center gap-2">
-        <span className="text-lg">🎙️</span>
+      <div className="mb-1">
         {url ? (
-          <audio controls src={url} className="h-9 max-w-[220px]" onClick={(e) => e.stopPropagation()} />
+          <VoiceNotePlayer src={url} isMine={mine} />
         ) : (
-          <span className="text-xs opacity-70">{failed ? "🔒 couldn't load" : "decrypting…"}</span>
+          <div className="flex items-center gap-2 py-1.5 px-2.5 text-xs opacity-70">
+            <span className="text-base">🎙️</span>
+            <span>{failed ? "🔒 couldn't load" : "decrypting…"}</span>
+          </div>
         )}
       </div>
     );
@@ -412,7 +415,7 @@ export function MessageBubble({
 
       {copied && typeof document !== "undefined" &&
         createPortal(
-          <div className="pop-in pointer-events-none fixed top-4 left-1/2 -translate-x-1/2 z-[120] flex items-center gap-2 rounded-full border border-brand-border bg-brand-surface2/95 px-3 py-1.5 text-xs font-medium text-emerald-400 shadow-xl backdrop-blur">
+          <div className="animate-toast pointer-events-none fixed bottom-[calc(74px+var(--kb)+var(--safe-bottom))] left-1/2 -translate-x-1/2 z-[120] flex items-center gap-2 rounded-full border border-emerald-500/40 bg-brand-surface/95 px-3.5 py-1.5 text-xs font-medium text-emerald-400 shadow-2xl backdrop-blur">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
               <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
