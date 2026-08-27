@@ -127,6 +127,9 @@ export function Composer({
       requestAnimationFrame(() => {
         taRef.current?.focus();
       });
+      setTimeout(() => {
+        taRef.current?.focus();
+      }, 50);
     }
   }
 
@@ -261,11 +264,13 @@ export function Composer({
             onPointerDown={(e) => {
               if (canSend) {
                 e.preventDefault();
+                taRef.current?.focus();
               }
             }}
             onMouseDown={(e) => {
               if (canSend) {
                 e.preventDefault();
+                taRef.current?.focus();
               }
             }}
             onTouchEnd={(e) => {
