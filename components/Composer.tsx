@@ -166,32 +166,63 @@ export function Composer({
       />
 
       {recording ? (
-        <div className="flex items-center gap-3 py-1">
-          <span className="flex items-center gap-2 text-sm text-red-400">
-            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
-            Recording {Math.floor(recSecs / 60)}:{String(recSecs % 60).padStart(2, "0")}
+        <div className="slide-up flex items-center gap-2.5 py-1 px-1 bg-brand-surface2/40 rounded-2xl border border-red-500/20">
+          {/* Pulsing live record dot with glowing ring */}
+          <div className="relative flex items-center justify-center ml-1">
+            <span className="animate-pulse-ring absolute h-6 w-6 rounded-full bg-red-500/30" />
+            <span className="relative h-2.5 w-2.5 rounded-full bg-red-500 shadow-sm" />
+          </div>
+
+          {/* Recording Timer */}
+          <span className="font-mono text-sm font-semibold text-red-400 min-w-[36px]">
+            {Math.floor(recSecs / 60)}:{String(recSecs % 60).padStart(2, "0")}
           </span>
+
+          {/* Animated audio waveform equalizer bars */}
+          <div className="flex h-5 items-center gap-[3px] px-1.5 overflow-hidden">
+            {[0.4, 0.8, 0.3, 0.95, 0.6, 0.85, 0.45, 0.7, 0.5, 0.9, 0.35, 0.65].map((scale, i) => (
+              <span
+                key={i}
+                style={{
+                  animationDelay: `${(i % 5) * 0.15}s`,
+                  animationDuration: `${0.6 + (i % 3) * 0.2}s`,
+                }}
+                className="animate-wave-bar w-[2.5px] rounded-full bg-red-400/80"
+              />
+            ))}
+          </div>
+
           <div className="flex-1" />
+
+          {/* Cancel button */}
           <button
             onClick={() => stopRecording(false)}
-            className="pressable rounded-full px-3 py-1 text-sm text-brand-muted hover:bg-white/5 hover:text-brand-text"
+            className="pressable rounded-full px-3 py-1 text-xs font-medium text-brand-muted hover:bg-white/5 hover:text-brand-text transition"
             type="button"
           >
             Cancel
           </button>
+
+          {/* Send voice note button */}
           <button
             onClick={() => stopRecording(true)}
-            className="pressable grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-accent text-white transition hover:bg-brand-accentHover"
+            className="pressable grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-accent text-white shadow-lg transition hover:bg-brand-accentHover"
             aria-label="Send voice note"
             type="button"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
               <path d="M4 12l16-8-6 16-3-6-7-2z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
             </svg>
           </button>
         </div>
       ) : (
-        <div className="flex items-end gap-0.5 sm:gap-1">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+          className="flex items-end gap-0.5 sm:gap-1"
+        >
           <button
             onClick={() => setShowEmoji((v) => !v)}
             className={`pressable grid h-11 w-10 shrink-0 place-items-center rounded-full text-xl transition sm:w-9 ${
@@ -199,6 +230,7 @@ export function Composer({
             }`}
             aria-label="Emoji"
             type="button"
+            tabIndex={-1}
           >
             😊
           </button>
@@ -232,6 +264,7 @@ export function Composer({
                 }`}
                 aria-label="Attach"
                 type="button"
+                tabIndex={-1}
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                   <path d="M21 11.5l-8.5 8.5a5 5 0 01-7-7l8.5-8.5a3.5 3.5 0 015 5L10.5 18a2 2 0 01-3-3l7.5-7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -260,7 +293,13 @@ export function Composer({
 
           <button
             key="composer-action-btn"
-            type="button"
+            type={canSend ? "submit" : "button"}
+            tabIndex={canSend ? -1 : 0}
+            onTouchStart={(e) => {
+              if (canSend) {
+                e.preventDefault();
+              }
+            }}
             onPointerDown={(e) => {
               if (canSend) {
                 e.preventDefault();
@@ -279,29 +318,32 @@ export function Composer({
                 submit();
               }
             }}
-            onClick={() => {
+            onClick={(e) => {
               if (canSend) {
+                e.preventDefault();
                 if (hasText) submit();
               } else {
                 startRecording();
               }
             }}
             disabled={disabled || (canSend && !hasText)}
-            className="pressable grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-accent text-white transition hover:bg-brand-accentHover disabled:opacity-40"
+            className="pressable group grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-accent text-white transition hover:bg-brand-accentHover disabled:opacity-40 shadow-sm"
             aria-label={canSend ? "Send" : "Record voice note"}
           >
-            {canSend ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M4 12l16-8-6 16-3-6-7-2z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-              </svg>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="2" />
-                <path d="M5 11a7 7 0 0014 0M12 18v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            )}
+            <span className="transition-transform duration-150 group-active:scale-90">
+              {canSend ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="fade-in">
+                  <path d="M4 12l16-8-6 16-3-6-7-2z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="fade-in">
+                  <rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="2" />
+                  <path d="M5 11a7 7 0 0014 0M12 18v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              )}
+            </span>
           </button>
-        </div>
+        </form>
       )}
     </div>
   );

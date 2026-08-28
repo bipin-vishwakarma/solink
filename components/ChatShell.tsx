@@ -1102,6 +1102,11 @@ export function ChatShell({
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
     atBottomRef.current = dist < 80;
     setShowScrollBtn(dist > 240);
+
+    // Dismiss keyboard when scrolling up into message history (WhatsApp behavior)
+    if (!atBottomRef.current && typeof document !== "undefined" && document.activeElement instanceof HTMLTextAreaElement) {
+      document.activeElement.blur();
+    }
     // Near the top: page in older history, preserving the scroll position.
     if (el.scrollTop < 60 && !loadingOlderRef.current) {
       const t = transportRef.current;
@@ -1573,6 +1578,11 @@ export function ChatShell({
             <div
               ref={scrollRef}
               onScroll={onScroll}
+              onTouchStart={(e) => {
+                if (e.target === e.currentTarget && typeof document !== "undefined" && document.activeElement instanceof HTMLTextAreaElement) {
+                  document.activeElement.blur();
+                }
+              }}
               className={`flex-1 overflow-y-auto overscroll-contain ${
                 stealth ? "bg-ide-bg py-2" : "px-3 py-4 sm:px-5"
               }`}

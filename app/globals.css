@@ -148,6 +148,35 @@ body.chat-locked {
   animation: fade-in 0.2s ease-out;
 }
 
+/* Audio recording pulsing glow ring */
+@keyframes pulse-ring {
+  0% { transform: scale(0.92); opacity: 0.8; }
+  50% { transform: scale(1.18); opacity: 0.3; }
+  100% { transform: scale(0.92); opacity: 0.8; }
+}
+.animate-pulse-ring {
+  animation: pulse-ring 1.8s ease-in-out infinite;
+}
+
+/* Audio waveform equalizer bar bounce */
+@keyframes wave-bounce {
+  0%, 100% { height: 28%; }
+  50% { height: 100%; }
+}
+.animate-wave-bar {
+  animation: wave-bounce 1s ease-in-out infinite;
+}
+
+/* Copy toast floating spring */
+@keyframes toast-float {
+  0% { opacity: 0; transform: translate(-50%, 16px) scale(0.92); }
+  60% { opacity: 1; transform: translate(-50%, -4px) scale(1.02); }
+  100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+.animate-toast {
+  animation: toast-float 0.26s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 /* Chat pane pushes in from the right — mobile only, where it reads as a
    navigation transition. On tablet/desktop the pane is always visible, so no
    animation. */
