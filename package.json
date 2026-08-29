@@ -1,6 +1,6 @@
 {
   "name": "solink",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "description": "Solink — E2E encrypted chat that disguises messages as code (Boss Mode).",
   "scripts": {

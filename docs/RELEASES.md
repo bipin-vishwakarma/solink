@@ -6,6 +6,14 @@ release pull request. Already-open web and installed-PWA sessions poll the
 uncached `/version.json` endpoint and offer an Update button when its version
 differs from their bundled version.
 
+## 0.2.5 - 2026-08-29
+
+- Make the peer profile picture / avatar visible in the active chat header across
+  all screen sizes, eliminating the previous mobile-only `hidden sm:block` restriction.
+- Initialize `peerAvatar` with cached contact avatar on conversation switch to prevent
+  avatar flicker while connecting.
+- Make the header avatar and name clickable to open contact details and chat options.
+
 ## 0.2.4 - 2026-08-29
 
 - Fix mobile keyboard dismissal race condition when sending messages by decoupling
