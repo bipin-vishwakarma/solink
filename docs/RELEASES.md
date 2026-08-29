@@ -6,6 +6,15 @@ release pull request. Already-open web and installed-PWA sessions poll the
 uncached `/version.json` endpoint and offer an Update button when its version
 differs from their bundled version.
 
+## 0.2.6 - 2026-08-29
+
+- Introduce official **WeChat Expressions** category (`[Doge]`, `[Facepalm]`, `[Smart]`, `[Hey]`, `[RedPacket]`, etc.) with full search support.
+- Upgrade emoji picker into a WhatsApp-style dual tray with **`😀 Emoji`** and **`🏷️ Stickers`** tabs.
+- Add built-in sticker packs: **Doge & WeChat Reactions**, **Cute Cats**, and **Classic Memes**.
+- Implement transparent sticker message bubble rendering (floating sticker, no message bubble background/border, floating timestamp badge).
+- Support custom sticker imports via `+ Add` button and one-tap **`⭐ Save to Stickers`** on any received or sent sticker, persisted in local storage.
+- Maintain zero plaintext invariant: all sticker payloads are end-to-end encrypted with AES-GCM prior to transport.
+
 ## 0.2.5 - 2026-08-29
 
 - Make the peer profile picture / avatar visible in the active chat header across

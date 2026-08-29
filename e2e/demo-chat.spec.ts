@@ -63,3 +63,29 @@ test("mobile chat options stay in a top-level scrollable sheet", async ({ page }
   await expect(sheet).toBeHidden();
   await expect(page.getByRole("button", { name: "Chat options" })).toBeFocused();
 });
+
+test("emoji picker supports WeChat expressions and switches to stickers tab", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("solink:onboarded", "1");
+    localStorage.setItem("solink:name", "e2e-emojis");
+  });
+  await page.goto("/");
+  await openConversation(page, "e2e-peer");
+
+  // Open emoji and sticker drawer
+  await page.getByRole("button", { name: "Emoji and stickers" }).click({ force: true });
+
+  // Mode buttons: Emoji and Stickers
+  await expect(page.getByRole("button", { name: "😀 Emoji" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "🏷️ Stickers" })).toBeVisible();
+
+  // Verify WeChat Expressions category is present
+  await expect(page.getByText("WeChat Expressions")).toBeVisible();
+
+  // Switch to stickers tab
+  await page.getByRole("button", { name: "🏷️ Stickers" }).click({ force: true });
+
+  // Verify sticker packs and Doge pack stickers appear
+  await expect(page.getByTitle("Doge & WeChat")).toBeVisible();
+  await expect(page.getByTitle("Classic Doge")).toBeVisible();
+});

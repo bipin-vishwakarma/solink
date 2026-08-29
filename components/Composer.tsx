@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { EmojiPicker } from "./EmojiPicker";
+import { stickerToFile, type Sticker } from "@/lib/stickers";
 
 export function Composer({
   onSend,
@@ -149,6 +150,17 @@ export function Composer({
   const hasText = Boolean(text.trim());
   const canSend = hasText || !onAttach;
 
+  const handlePickSticker = async (sticker: Sticker) => {
+    if (!onAttach) return;
+    setShowEmoji(false);
+    try {
+      const file = await stickerToFile(sticker);
+      onAttach(file);
+    } catch (err) {
+      console.error("Failed to send sticker", err);
+    }
+  };
+
   return (
     <div className="relative border-t border-brand-border bg-brand-surface/70 px-2 pt-2 pb-[calc(0.5rem+var(--safe-bottom))] backdrop-blur sm:px-3 sm:pt-3 sm:pb-[calc(0.75rem+var(--safe-bottom))]">
       {showEmoji && (
@@ -158,6 +170,7 @@ export function Composer({
               handleChange(text + e);
               taRef.current?.focus();
             }}
+            onPickSticker={onAttach ? handlePickSticker : undefined}
             onClose={() => setShowEmoji(false)}
           />
         </div>
@@ -237,7 +250,8 @@ export function Composer({
             className={`pressable grid h-11 w-10 shrink-0 place-items-center rounded-full text-xl transition sm:w-9 ${
               showEmoji ? "text-brand-accent" : "text-brand-muted hover:text-brand-text"
             }`}
-            aria-label="Emoji"
+            aria-label="Emoji and stickers"
+            title="Emoji and stickers"
             type="button"
             tabIndex={-1}
           >
