@@ -12,6 +12,7 @@ async function openDemoUser(context: BrowserContext, username: string): Promise<
 }
 
 async function openConversation(page: Page, username: string): Promise<void> {
+  await page.addStyleTag({ content: "nextjs-portal { display: none !important; pointer-events: none !important; }" }).catch(() => {});
   await page.getByPlaceholder("Connect by username…").fill(username);
   await page.getByRole("button", { name: new RegExp(`@${username}`) }).click();
   await expect(page.getByRole("button", { name: "Chat options" })).toBeVisible();
@@ -78,7 +79,7 @@ test("WeChat drawer opens in keyboard area, flips button to keyboard, and search
   await expect(toggleBtn).toHaveText("😊");
 
   // Tap 😊 -> button flips to ⌨️ and WeChat drawer opens in keyboard area
-  await toggleBtn.click({ force: true });
+  await toggleBtn.click();
   const keyboardBtn = page.getByRole("button", { name: "Switch to keyboard" });
   await expect(keyboardBtn).toBeVisible();
   await expect(keyboardBtn).toHaveText("⌨️");
@@ -88,7 +89,7 @@ test("WeChat drawer opens in keyboard area, flips button to keyboard, and search
   await expect(page.getByRole("button", { name: "Delete last character" })).toBeVisible();
 
   // Switch to Stickers & GIFs tab
-  await page.getByRole("button", { name: "Stickers & GIFs" }).click({ force: true });
+  await page.getByRole("button", { name: "Stickers & GIFs" }).click();
 
   // Verify search bar is visible
   const searchInput = page.getByPlaceholder(/Search stickers & GIFs/);
@@ -99,7 +100,37 @@ test("WeChat drawer opens in keyboard area, flips button to keyboard, and search
   await expect(page.getByTitle("Animated Popcat")).toBeVisible();
 
   // Tap ⌨️ -> closes drawer and flips back to 😊
-  await keyboardBtn.click({ force: true });
+  await keyboardBtn.click();
   await expect(page.getByRole("button", { name: "WeChat emojis and stickers" })).toBeVisible();
   await expect(page.getByTitle("[Doge] Doge")).toBeHidden();
+});
+
+test("WeChat '+' button opens action drawer in keyboard area with Photos, Camera, Files, and Location", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("solink:onboarded", "1");
+    localStorage.setItem("solink:name", "e2e-action-drawer");
+  });
+  await page.goto("/");
+  await openConversation(page, "e2e-peer");
+
+  // Verify '+' action button is visible
+  const plusBtn = page.getByRole("button", { name: "More actions" });
+  await expect(plusBtn).toBeVisible();
+
+  // Tap '+' -> opens action drawer and button changes aria-label to 'Close actions'
+  await plusBtn.click({ force: true });
+  await expect(page.getByRole("button", { name: "Close actions" })).toBeVisible();
+
+  // Verify action tiles are present
+  await expect(page.getByRole("button", { name: /Photos/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Camera/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Location/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Files/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Voice Call/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Red Packet/ })).toBeVisible();
+
+  // Tap Red Packet action tile -> inserts RedPacket note and closes drawer
+  await page.getByRole("button", { name: /Red Packet/ }).click({ force: true });
+  await expect(page.getByRole("button", { name: "More actions" })).toBeVisible();
+  await expect(page.getByPlaceholder("Type a message")).toHaveValue(/RedPacket/);
 });
