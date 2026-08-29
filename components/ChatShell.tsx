@@ -177,6 +177,7 @@ export function ChatShell({
   const typingClear = useRef<ReturnType<typeof setTimeout> | null>(null);
   const markedRef = useRef<Set<string>>(new Set());
   const atBottomRef = useRef(true);
+  const isUserScrollingRef = useRef(false);
   const loadingOlderRef = useRef(false);
   const restoreScrollRef = useRef<number | null>(null); // scrollHeight snapshot for load-older compensation
   const loadingInitialHistoryRef = useRef(false);
@@ -1035,10 +1036,11 @@ export function ChatShell({
     };
   }, []);
 
-  // Auto-scroll only when the user is already near the bottom (or just sent something).
+  // Auto-scroll instantly when the user is pinned to bottom (avoids intermediate scroll frames).
   useEffect(() => {
     if (atBottomRef.current) {
-      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
     }
   }, [messages.length, peerTyping]);
 
@@ -1103,8 +1105,8 @@ export function ChatShell({
     atBottomRef.current = dist < 80;
     setShowScrollBtn(dist > 240);
 
-    // Dismiss keyboard when scrolling up into message history (WhatsApp behavior)
-    if (!atBottomRef.current && typeof document !== "undefined" && document.activeElement instanceof HTMLTextAreaElement) {
+    // Dismiss keyboard ONLY when the user is actively touching/dragging the message history up
+    if (isUserScrollingRef.current && !atBottomRef.current && typeof document !== "undefined" && document.activeElement instanceof HTMLTextAreaElement) {
       document.activeElement.blur();
     }
     // Near the top: page in older history, preserving the scroll position.
@@ -1133,7 +1135,8 @@ export function ChatShell({
 
   function scrollToBottom() {
     atBottomRef.current = true;
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }
 
   async function send(text: string) {
@@ -1579,9 +1582,16 @@ export function ChatShell({
               ref={scrollRef}
               onScroll={onScroll}
               onTouchStart={(e) => {
+                isUserScrollingRef.current = true;
                 if (e.target === e.currentTarget && typeof document !== "undefined" && document.activeElement instanceof HTMLTextAreaElement) {
                   document.activeElement.blur();
                 }
+              }}
+              onTouchEnd={() => {
+                isUserScrollingRef.current = false;
+              }}
+              onTouchCancel={() => {
+                isUserScrollingRef.current = false;
               }}
               className={`flex-1 overflow-y-auto overscroll-contain ${
                 stealth ? "bg-ide-bg py-2" : "px-3 py-4 sm:px-5"

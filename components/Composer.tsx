@@ -112,9 +112,15 @@ export function Composer({
 
   function submit() {
     const now = Date.now();
-    if (now - lastSubmitRef.current < 200) return;
+    if (now - lastSubmitRef.current < 200) {
+      taRef.current?.focus();
+      return;
+    }
     const t = text.trim();
-    if (!t) return;
+    if (!t) {
+      taRef.current?.focus();
+      return;
+    }
     lastSubmitRef.current = now;
     onSend(t);
     setText("");
@@ -129,7 +135,10 @@ export function Composer({
       });
       setTimeout(() => {
         taRef.current?.focus();
-      }, 50);
+      }, 40);
+      setTimeout(() => {
+        taRef.current?.focus();
+      }, 120);
     }
   }
 
