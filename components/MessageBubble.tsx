@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AttachmentMeta, AttachmentRef, ChatMessage, ReactionSummary } from "@/lib/types";
 import { VoiceNotePlayer } from "./VoiceNotePlayer";
+import { saveCustomSticker } from "@/lib/stickers";
 
 const QUICK_REACTIONS = ["❤️", "👍", "😂", "😮", "😢", "🙏"];
 
@@ -66,6 +67,30 @@ function AttachmentView({
           <div className="flex items-center gap-2 py-1.5 px-2.5 text-xs opacity-70">
             <span className="text-base">🎙️</span>
             <span>{failed ? "🔒 couldn't load" : "decrypting…"}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const isSticker = meta.name.startsWith("sticker-") || meta.name.includes(".sticker.");
+  if (isSticker) {
+    return (
+      <div className="relative inline-block select-none my-0.5">
+        {url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={url}
+            alt={meta.name}
+            className="h-32 w-32 object-contain pointer-events-auto select-none drop-shadow"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenImage?.(url, meta.name);
+            }}
+          />
+        ) : (
+          <div className="grid h-32 w-32 place-items-center rounded-xl bg-black/10 text-xs text-brand-muted">
+            {failed ? "🔒 couldn't load" : "decrypting…"}
           </div>
         )}
       </div>
@@ -179,10 +204,37 @@ export function MessageBubble({
 }) {
   const [showReactBar, setShowReactBar] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [stickerSaved, setStickerSaved] = useState(false);
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
   const touchStartPos = useRef<{ x: number; y: number } | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didLongPress = useRef(false);
+
+  const isSticker = Boolean(
+    msg.attachment && (msg.attachment.name.startsWith("sticker-") || msg.attachment.name.includes(".sticker."))
+  );
+
+  async function handleSaveSticker() {
+    if (!msg.attachment || !resolveAttachment) return;
+    try {
+      const blob = await resolveAttachment(msg.attachment.ref);
+      if (!blob) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        saveCustomSticker({
+          id: `saved-${Date.now()}`,
+          name: msg.attachment?.name.replace(/^sticker-|\.sticker\.[a-z0-9]+$/gi, "") || "Sticker",
+          dataUrl,
+        });
+        setStickerSaved(true);
+        setTimeout(() => setStickerSaved(false), 2000);
+      };
+      reader.readAsDataURL(blob);
+    } catch (e) {
+      console.error("Failed to save sticker", e);
+    }
+  }
 
   function copy() {
     if (!msg.text) return;
@@ -230,6 +282,16 @@ export function MessageBubble({
           </svg>
         )}
       </button>
+      {isSticker && (
+        <button
+          onClick={() => void handleSaveSticker()}
+          className="rounded-full bg-brand-surface2 p-1.5 text-brand-muted hover:text-amber-300 transition"
+          title="Save to Stickers"
+          aria-label="Save to Stickers"
+        >
+          ⭐
+        </button>
+      )}
       {onReact && (
         <button
           onClick={() => setShowReactBar((v) => !v)}
@@ -332,14 +394,14 @@ export function MessageBubble({
       )}
       {actions}
       <div
-        className={`${animate ? "message-bubble-new" : ""} max-w-[76%] select-none px-3 py-1.5 text-[14.5px] leading-snug shadow-sm [-webkit-touch-callout:none] ${
-          msg.mine
-            ? "bg-gradient-to-br from-brand-accent to-[#b5533a] text-white"
-            : "border border-brand-border bg-brand-surface2 text-brand-text"
-        } ${
-          msg.mine
-            ? grouped ? "rounded-2xl rounded-br-sm" : "rounded-2xl rounded-tr-md rounded-br-sm"
-            : grouped ? "rounded-2xl rounded-bl-sm" : "rounded-2xl rounded-tl-md rounded-bl-sm"
+        className={`${animate ? "message-bubble-new" : ""} max-w-[76%] select-none text-[14.5px] leading-snug [-webkit-touch-callout:none] ${
+          isSticker
+            ? "relative bg-transparent border-none shadow-none p-0"
+            : msg.mine
+              ? "bg-gradient-to-br from-brand-accent to-[#b5533a] text-white px-3 py-1.5 shadow-sm " +
+                (grouped ? "rounded-2xl rounded-br-sm" : "rounded-2xl rounded-tr-md rounded-br-sm")
+              : "border border-brand-border bg-brand-surface2 text-brand-text px-3 py-1.5 shadow-sm " +
+                (grouped ? "rounded-2xl rounded-bl-sm" : "rounded-2xl rounded-tl-md rounded-bl-sm")
         }`}
       >
         {showSender && !msg.mine && (
@@ -368,7 +430,15 @@ export function MessageBubble({
             <Linkified text={msg.text} mine={msg.mine} />
           </div>
         )}
-        <div className={`mt-px flex items-center justify-end gap-1 text-[10px] leading-none ${msg.mine ? "text-white/75" : "text-brand-faint"}`}>
+        <div
+          className={`mt-px flex items-center justify-end gap-1 text-[10px] leading-none ${
+            isSticker
+              ? "absolute bottom-1 right-1 rounded-full bg-black/60 px-1.5 py-0.5 text-white/90 backdrop-blur-sm shadow"
+              : msg.mine
+                ? "text-white/75"
+                : "text-brand-faint"
+          }`}
+        >
           {msg.mine && (msg.status === "failed" || msg.status === "queued") ? (
             <button
               onClick={onRetry}
@@ -424,6 +494,15 @@ export function MessageBubble({
           document.body
         )}
 
+      {stickerSaved && typeof document !== "undefined" &&
+        createPortal(
+          <div className="animate-toast pointer-events-none fixed bottom-[calc(74px+var(--kb)+var(--safe-bottom))] left-1/2 -translate-x-1/2 z-[120] flex items-center gap-2 rounded-full border border-amber-500/40 bg-brand-surface/95 px-3.5 py-1.5 text-xs font-medium text-amber-300 shadow-2xl backdrop-blur">
+            <span>⭐</span>
+            <span>Saved to Stickers</span>
+          </div>,
+          document.body
+        )}
+
       {mobileSheetOpen && typeof document !== "undefined" &&
         createPortal(
           <div className="fixed inset-0 z-[100] sm:hidden">
@@ -457,6 +536,19 @@ export function MessageBubble({
                 </div>
               )}
               <div className="space-y-1">
+                {isSticker && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleSaveSticker();
+                      setMobileSheetOpen(false);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-amber-300 hover:bg-white/5 active:bg-white/10"
+                  >
+                    <span className="text-base">⭐</span>
+                    <span>Save to Stickers</span>
+                  </button>
+                )}
                 {msg.text && (
                   <button
                     type="button"

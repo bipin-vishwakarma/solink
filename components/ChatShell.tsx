@@ -774,7 +774,8 @@ export function ChatShell({
       },
       onMessage: (raw, payload, mine) => {
         const { text, replyTo, attachment } = decodeMessage(raw);
-        const preview = text || (attachment ? "📎 " + attachment.name : "");
+        const isSticker = Boolean(attachment && (attachment.name.startsWith("sticker-") || attachment.name.includes(".sticker.")));
+        const preview = text || (attachment ? (isSticker ? "🏷️ Sticker" : "📎 " + attachment.name) : "");
         setPeerTyping(false);
         if (!loadingInitialHistoryRef.current) animatedMessageIdsRef.current.add(payload.id);
         setMessagesByContact((prev) => {
@@ -1270,20 +1271,24 @@ export function ChatShell({
         ],
       };
     });
-    const preview = file.type.startsWith("audio/")
-      ? "🎙️ Voice message"
-      : file.type.startsWith("image/")
-        ? "📷 Photo"
-        : "📎 " + file.name;
+    const isSticker = file.name.startsWith("sticker-") || file.name.includes(".sticker.");
+    const preview = isSticker
+      ? "🏷️ Sticker"
+      : file.type.startsWith("audio/")
+        ? "🎙️ Voice message"
+        : file.type.startsWith("image/")
+          ? "📷 Photo"
+          : "📎 " + file.name;
     setContacts((prev) =>
       prev.map((c) => (c.username === activeContact ? { ...c, lastText: preview } : c))
     );
   }
 
   // Intercept image attachments so the user can crop/edit before sending.
-  // Non-images go straight through. Forwarded images reuse sendFile directly.
+  // Stickers and non-images go straight through. Forwarded images reuse sendFile directly.
   function handleAttach(file: File) {
-    if (file.type.startsWith("image/")) setCropState({ file });
+    const isSticker = file.name.startsWith("sticker-") || file.name.includes(".sticker.");
+    if (!isSticker && file.type.startsWith("image/")) setCropState({ file });
     else void sendFile(file);
   }
 

@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { EmojiPicker } from "./EmojiPicker";
+import { WeChatDrawer } from "./WeChatDrawer";
+import { WeChatActionDrawer } from "./WeChatActionDrawer";
+import { stickerToFile, type Sticker } from "@/lib/stickers";
 
 export function Composer({
   onSend,
@@ -15,20 +17,28 @@ export function Composer({
   disabled?: boolean;
 }) {
   const [text, setText] = useState("");
-  const [showEmoji, setShowEmoji] = useState(false);
-  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showEmojiDrawer, setShowEmojiDrawer] = useState(false);
+  const [showActionDrawer, setShowActionDrawer] = useState(false);
+  const [actionToast, setActionToast] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
 
   function shareLocation() {
-    setShowAttachMenu(false);
-    if (!navigator.geolocation) return;
+    setShowActionDrawer(false);
+    if (!navigator.geolocation) {
+      setActionToast("Location services not supported on this device");
+      setTimeout(() => setActionToast(null), 2500);
+      return;
+    }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords;
         onSend(`📍 My location: https://www.google.com/maps?q=${latitude},${longitude}`);
       },
-      () => {},
+      () => {
+        setActionToast("Could not access location");
+        setTimeout(() => setActionToast(null), 2500);
+      },
       { enableHighAccuracy: true, timeout: 10000 }
     );
   }
@@ -124,7 +134,8 @@ export function Composer({
     lastSubmitRef.current = now;
     onSend(t);
     setText("");
-    setShowEmoji(false);
+    setShowEmojiDrawer(false);
+    setShowActionDrawer(false);
     stopTyping();
     if (idleTimer.current) clearTimeout(idleTimer.current);
     // Keep textarea focused so mobile virtual keyboard stays open
@@ -149,19 +160,36 @@ export function Composer({
   const hasText = Boolean(text.trim());
   const canSend = hasText || !onAttach;
 
+  const handlePickSticker = async (sticker: Sticker) => {
+    if (!onAttach) return;
+    try {
+      const file = await stickerToFile(sticker);
+      onAttach(file);
+    } catch (err) {
+      console.error("Failed to send sticker", err);
+    }
+  };
+
+  const handleCustomAction = (actionId: string) => {
+    setShowActionDrawer(false);
+    if (actionId === "call") {
+      setActionToast("📞 Voice & video calling coming soon!");
+      setTimeout(() => setActionToast(null), 2500);
+    } else if (actionId === "lucky") {
+      handleChange("[RedPacket] Best Wishes! 🧧");
+      taRef.current?.focus();
+    } else if (actionId === "contact") {
+      const myName = typeof window !== "undefined" ? localStorage.getItem("solink:name") || "user" : "user";
+      handleChange(`📇 Contact Card: @${myName}`);
+      taRef.current?.focus();
+    } else if (actionId === "favorites") {
+      setShowEmojiDrawer(true);
+    }
+  };
+
   return (
-    <div className="relative border-t border-brand-border bg-brand-surface/70 px-2 pt-2 pb-[calc(0.5rem+var(--safe-bottom))] backdrop-blur sm:px-3 sm:pt-3 sm:pb-[calc(0.75rem+var(--safe-bottom))]">
-      {showEmoji && (
-        <div className="absolute bottom-[68px] left-2 z-20">
-          <EmojiPicker
-            onPick={(e) => {
-              handleChange(text + e);
-              taRef.current?.focus();
-            }}
-            onClose={() => setShowEmoji(false)}
-          />
-        </div>
-      )}
+    <div className="relative border-t border-brand-border bg-brand-surface/70 backdrop-blur">
+      <div className="px-2 pt-2 pb-[calc(0.5rem+var(--safe-bottom))] sm:px-3 sm:pt-3 sm:pb-[calc(0.75rem+var(--safe-bottom))]">
 
       <input
         ref={fileRef}
@@ -233,53 +261,53 @@ export function Composer({
           className="flex items-end gap-0.5 sm:gap-1"
         >
           <button
-            onClick={() => setShowEmoji((v) => !v)}
+            onClick={() => {
+              if (showEmojiDrawer) {
+                setShowEmojiDrawer(false);
+                taRef.current?.focus();
+              } else {
+                setShowActionDrawer(false);
+                taRef.current?.blur();
+                setShowEmojiDrawer(true);
+              }
+            }}
             className={`pressable grid h-11 w-10 shrink-0 place-items-center rounded-full text-xl transition sm:w-9 ${
-              showEmoji ? "text-brand-accent" : "text-brand-muted hover:text-brand-text"
+              showEmojiDrawer ? "text-brand-accent scale-105" : "text-brand-muted hover:text-brand-text"
             }`}
-            aria-label="Emoji"
+            aria-label={showEmojiDrawer ? "Switch to keyboard" : "WeChat emojis and stickers"}
+            title={showEmojiDrawer ? "Switch to keyboard" : "WeChat emojis and stickers"}
             type="button"
             tabIndex={-1}
           >
-            😊
+            {showEmojiDrawer ? "⌨️" : "😊"}
           </button>
           {onAttach && (
-            <div className="relative">
-              {showAttachMenu && (
-                <div className="pop-in absolute bottom-12 left-0 z-20 w-44 overflow-hidden rounded-2xl border border-brand-border bg-brand-surface2 shadow-2xl">
-                  <button
-                    onClick={() => {
-                      setShowAttachMenu(false);
-                      fileRef.current?.click();
-                    }}
-                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
-                    type="button"
-                  >
-                    <span className="text-lg">📷</span> Photo / File
-                  </button>
-                  <button
-                    onClick={shareLocation}
-                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-brand-text hover:bg-white/5"
-                    type="button"
-                  >
-                    <span className="text-lg">📍</span> Location
-                  </button>
-                </div>
-              )}
-              <button
-                onClick={() => setShowAttachMenu((v) => !v)}
-                className={`pressable grid h-11 w-10 shrink-0 place-items-center rounded-full transition sm:w-9 ${
-                  showAttachMenu ? "text-brand-accent" : "text-brand-muted hover:text-brand-text"
-                }`}
-                aria-label="Attach"
-                type="button"
-                tabIndex={-1}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M21 11.5l-8.5 8.5a5 5 0 01-7-7l8.5-8.5a3.5 3.5 0 015 5L10.5 18a2 2 0 01-3-3l7.5-7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-            </div>
+            <button
+              onClick={() => {
+                if (showActionDrawer) {
+                  setShowActionDrawer(false);
+                  taRef.current?.focus();
+                } else {
+                  setShowEmojiDrawer(false);
+                  taRef.current?.blur();
+                  setShowActionDrawer(true);
+                }
+              }}
+              className={`pressable grid h-11 w-10 shrink-0 place-items-center rounded-full transition-all duration-200 sm:w-9 ${
+                showActionDrawer
+                  ? "text-brand-accent rotate-45 scale-105"
+                  : "text-brand-muted hover:text-brand-text rotate-0"
+              }`}
+              aria-label={showActionDrawer ? "Close actions" : "More actions"}
+              title={showActionDrawer ? "Close actions" : "More actions"}
+              type="button"
+              tabIndex={-1}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M12 8v8M8 12h8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </button>
           )}
 
           <textarea
@@ -289,6 +317,14 @@ export function Composer({
             disabled={disabled}
             enterKeyHint="send"
             onChange={(e) => handleChange(e.target.value)}
+            onFocus={() => {
+              if (showEmojiDrawer) setShowEmojiDrawer(false);
+              if (showActionDrawer) setShowActionDrawer(false);
+            }}
+            onClick={() => {
+              if (showEmojiDrawer) setShowEmojiDrawer(false);
+              if (showActionDrawer) setShowActionDrawer(false);
+            }}
             onBlur={stopTyping}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -353,6 +389,39 @@ export function Composer({
             </span>
           </button>
         </form>
+      )}
+      </div>
+
+      {actionToast && (
+        <div className="pop-in pointer-events-none absolute -top-11 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 rounded-full bg-brand-surface2/95 border border-brand-border px-4 py-1.5 text-xs font-medium text-brand-text shadow-xl backdrop-blur">
+          <span>{actionToast}</span>
+        </div>
+      )}
+
+      {showEmojiDrawer && (
+        <WeChatDrawer
+          onPickEmoji={(e) => {
+            handleChange(text + e);
+          }}
+          onPickSticker={onAttach ? handlePickSticker : undefined}
+          onBackspace={() => {
+            if (!text) return;
+            const chars = Array.from(text);
+            chars.pop();
+            handleChange(chars.join(""));
+          }}
+        />
+      )}
+
+      {showActionDrawer && onAttach && (
+        <WeChatActionDrawer
+          onAttachFile={(file) => {
+            setShowActionDrawer(false);
+            onAttach(file);
+          }}
+          onShareLocation={shareLocation}
+          onCustomAction={handleCustomAction}
+        />
       )}
     </div>
   );

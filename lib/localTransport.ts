@@ -96,6 +96,7 @@ export class LocalTransport implements ChatTransport {
 
   private async handle(sig: Signal) {
     if ("peerId" in sig && sig.peerId === this.myPeerId) return; // ignore self
+    if (!this.myKeyPair) return;
 
     if (sig.kind === "hello") {
       // A real tab appeared — cancel the echo bot and pair for real.
