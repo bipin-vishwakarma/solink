@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { EmojiPicker } from "./EmojiPicker";
+import { WeChatDrawer } from "./WeChatDrawer";
 import { stickerToFile, type Sticker } from "@/lib/stickers";
 
 export function Composer({
@@ -16,7 +16,7 @@ export function Composer({
   disabled?: boolean;
 }) {
   const [text, setText] = useState("");
-  const [showEmoji, setShowEmoji] = useState(false);
+  const [showDrawer, setShowDrawer] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
@@ -125,7 +125,7 @@ export function Composer({
     lastSubmitRef.current = now;
     onSend(t);
     setText("");
-    setShowEmoji(false);
+    setShowDrawer(false);
     stopTyping();
     if (idleTimer.current) clearTimeout(idleTimer.current);
     // Keep textarea focused so mobile virtual keyboard stays open
@@ -152,7 +152,6 @@ export function Composer({
 
   const handlePickSticker = async (sticker: Sticker) => {
     if (!onAttach) return;
-    setShowEmoji(false);
     try {
       const file = await stickerToFile(sticker);
       onAttach(file);
@@ -162,19 +161,8 @@ export function Composer({
   };
 
   return (
-    <div className="relative border-t border-brand-border bg-brand-surface/70 px-2 pt-2 pb-[calc(0.5rem+var(--safe-bottom))] backdrop-blur sm:px-3 sm:pt-3 sm:pb-[calc(0.75rem+var(--safe-bottom))]">
-      {showEmoji && (
-        <div className="absolute bottom-[68px] left-2 z-20">
-          <EmojiPicker
-            onPick={(e) => {
-              handleChange(text + e);
-              taRef.current?.focus();
-            }}
-            onPickSticker={onAttach ? handlePickSticker : undefined}
-            onClose={() => setShowEmoji(false)}
-          />
-        </div>
-      )}
+    <div className="relative border-t border-brand-border bg-brand-surface/70 backdrop-blur">
+      <div className="px-2 pt-2 pb-[calc(0.5rem+var(--safe-bottom))] sm:px-3 sm:pt-3 sm:pb-[calc(0.75rem+var(--safe-bottom))]">
 
       <input
         ref={fileRef}
@@ -246,16 +234,25 @@ export function Composer({
           className="flex items-end gap-0.5 sm:gap-1"
         >
           <button
-            onClick={() => setShowEmoji((v) => !v)}
+            onClick={() => {
+              if (showDrawer) {
+                setShowDrawer(false);
+                taRef.current?.focus();
+              } else {
+                setShowAttachMenu(false);
+                taRef.current?.blur();
+                setShowDrawer(true);
+              }
+            }}
             className={`pressable grid h-11 w-10 shrink-0 place-items-center rounded-full text-xl transition sm:w-9 ${
-              showEmoji ? "text-brand-accent" : "text-brand-muted hover:text-brand-text"
+              showDrawer ? "text-brand-accent scale-105" : "text-brand-muted hover:text-brand-text"
             }`}
-            aria-label="Emoji and stickers"
-            title="Emoji and stickers"
+            aria-label={showDrawer ? "Switch to keyboard" : "WeChat emojis and stickers"}
+            title={showDrawer ? "Switch to keyboard" : "WeChat emojis and stickers"}
             type="button"
             tabIndex={-1}
           >
-            😊
+            {showDrawer ? "⌨️" : "😊"}
           </button>
           {onAttach && (
             <div className="relative">
@@ -303,6 +300,12 @@ export function Composer({
             disabled={disabled}
             enterKeyHint="send"
             onChange={(e) => handleChange(e.target.value)}
+            onFocus={() => {
+              if (showDrawer) setShowDrawer(false);
+            }}
+            onClick={() => {
+              if (showDrawer) setShowDrawer(false);
+            }}
             onBlur={stopTyping}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -367,6 +370,22 @@ export function Composer({
             </span>
           </button>
         </form>
+      )}
+      </div>
+
+      {showDrawer && (
+        <WeChatDrawer
+          onPickEmoji={(e) => {
+            handleChange(text + e);
+          }}
+          onPickSticker={onAttach ? handlePickSticker : undefined}
+          onBackspace={() => {
+            if (!text) return;
+            const chars = Array.from(text);
+            chars.pop();
+            handleChange(chars.join(""));
+          }}
+        />
       )}
     </div>
   );

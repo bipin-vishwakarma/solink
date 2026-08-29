@@ -64,28 +64,42 @@ test("mobile chat options stay in a top-level scrollable sheet", async ({ page }
   await expect(page.getByRole("button", { name: "Chat options" })).toBeFocused();
 });
 
-test("emoji picker supports WeChat expressions and switches to stickers tab", async ({ page }) => {
+test("WeChat drawer opens in keyboard area, flips button to keyboard, and searches stickers & GIFs", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("solink:onboarded", "1");
-    localStorage.setItem("solink:name", "e2e-emojis");
+    localStorage.setItem("solink:name", "e2e-wechat");
   });
   await page.goto("/");
   await openConversation(page, "e2e-peer");
 
-  // Open emoji and sticker drawer
-  await page.getByRole("button", { name: "Emoji and stickers" }).click({ force: true });
+  // Initial state: button shows 😊
+  const toggleBtn = page.getByRole("button", { name: "WeChat emojis and stickers" });
+  await expect(toggleBtn).toBeVisible();
+  await expect(toggleBtn).toHaveText("😊");
 
-  // Mode buttons: Emoji and Stickers
-  await expect(page.getByRole("button", { name: "😀 Emoji" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "🏷️ Stickers" })).toBeVisible();
+  // Tap 😊 -> button flips to ⌨️ and WeChat drawer opens in keyboard area
+  await toggleBtn.click({ force: true });
+  const keyboardBtn = page.getByRole("button", { name: "Switch to keyboard" });
+  await expect(keyboardBtn).toBeVisible();
+  await expect(keyboardBtn).toHaveText("⌨️");
 
-  // Verify WeChat Expressions category is present
-  await expect(page.getByText("WeChat Expressions")).toBeVisible();
+  // WeChat expressions are visible
+  await expect(page.getByTitle("[Doge] Doge")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete last character" })).toBeVisible();
 
-  // Switch to stickers tab
-  await page.getByRole("button", { name: "🏷️ Stickers" }).click({ force: true });
+  // Switch to Stickers & GIFs tab
+  await page.getByRole("button", { name: "Stickers & GIFs" }).click({ force: true });
 
-  // Verify sticker packs and Doge pack stickers appear
-  await expect(page.getByTitle("Doge & WeChat")).toBeVisible();
-  await expect(page.getByTitle("Classic Doge")).toBeVisible();
+  // Verify search bar is visible
+  const searchInput = page.getByPlaceholder(/Search stickers & GIFs/);
+  await expect(searchInput).toBeVisible();
+
+  // Test live search for popcat
+  await searchInput.fill("popcat");
+  await expect(page.getByTitle("Animated Popcat")).toBeVisible();
+
+  // Tap ⌨️ -> closes drawer and flips back to 😊
+  await keyboardBtn.click({ force: true });
+  await expect(page.getByRole("button", { name: "WeChat emojis and stickers" })).toBeVisible();
+  await expect(page.getByTitle("[Doge] Doge")).toBeHidden();
 });

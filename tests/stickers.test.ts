@@ -4,9 +4,10 @@ import {
   getCustomStickers,
   saveCustomSticker,
   removeCustomSticker,
+  searchStickersAndGifs,
   type Sticker,
 } from "../lib/stickers";
-import { EMOJI_CATEGORIES, ALL_EMOJIS } from "../lib/emojis";
+import { WECHAT_EMOJIS, searchWechatEmojis } from "../lib/wechatEmojis";
 import { encodeMessage, decodeMessage } from "../lib/envelope";
 import type { AttachmentMeta } from "../lib/types";
 
@@ -38,21 +39,24 @@ if (typeof globalThis.localStorage === "undefined") {
   });
 }
 
-describe("WeChat emojis dataset", () => {
-  it("includes the WeChat Expressions category", () => {
-    const wechatCat = EMOJI_CATEGORIES.find((c) => c.key === "wechat");
-    expect(wechatCat).toBeDefined();
-    expect(wechatCat?.name).toBe("WeChat Expressions");
-    expect(wechatCat?.emojis).toContain("🐶"); // Doge
-    expect(wechatCat?.emojis).toContain("🤦"); // Facepalm
-    expect(wechatCat?.emojis).toContain("🤓"); // Smart
-    expect(wechatCat?.emojis).toContain("🧧"); // Red packet
+describe("WeChat expressions dataset & search", () => {
+  it("includes official WeChat expressions", () => {
+    expect(WECHAT_EMOJIS.length).toBeGreaterThanOrEqual(40);
+    const doge = WECHAT_EMOJIS.find((e) => e.code === "[Doge]");
+    expect(doge).toBeDefined();
+    expect(doge?.char).toBe("🐶");
+    const facepalm = WECHAT_EMOJIS.find((e) => e.code === "[Facepalm]");
+    expect(facepalm).toBeDefined();
+    expect(facepalm?.char).toBe("🤦");
   });
 
-  it("includes all WeChat emojis in the flat ALL_EMOJIS list", () => {
-    expect(ALL_EMOJIS).toContain("🐶");
-    expect(ALL_EMOJIS).toContain("🤦");
-    expect(ALL_EMOJIS).toContain("🧧");
+  it("filters WeChat expressions via searchWechatEmojis", () => {
+    const results = searchWechatEmojis("doge");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].code).toBe("[Doge]");
+
+    const emptySearch = searchWechatEmojis("");
+    expect(emptySearch.length).toBe(WECHAT_EMOJIS.length);
   });
 });
 
@@ -96,6 +100,18 @@ describe("Sticker packs dataset & storage", () => {
 
     const saved = getCustomStickers();
     expect(saved.length).toBe(48);
+  });
+
+  it("searches stickers and animated GIFs across names and tags", () => {
+    const popcatResults = searchStickersAndGifs("popcat");
+    expect(popcatResults.length).toBeGreaterThan(0);
+    expect(popcatResults.some((s) => s.id === "gif-popcat")).toBe(true);
+
+    const fireResults = searchStickersAndGifs("fire");
+    expect(fireResults.length).toBeGreaterThan(0);
+
+    const emptyResults = searchStickersAndGifs("");
+    expect(emptyResults.length).toBeGreaterThan(10);
   });
 });
 
