@@ -746,7 +746,8 @@ export function ChatShell({
     setPeerTyping(false);
     setReplyingTo(null);
     setPeerOnline(false);
-    setPeerAvatar(null);
+    const initialAvatar = contactsRef.current.find((c) => c.username.toLowerCase() === activeContact.toLowerCase())?.avatarUrl ?? null;
+    setPeerAvatar(initialAvatar);
     setLastSeen(null);
     setReactionsByMsg({});
     markedRef.current = new Set();
@@ -1435,36 +1436,47 @@ export function ChatShell({
             <header className="relative z-40 flex items-center gap-2 border-b border-brand-border bg-brand-surface px-2.5 pb-2.5 pt-[calc(0.625rem+var(--safe-top))] sm:gap-3 sm:px-4">
               <button
                 onClick={() => setActiveContact(null)}
-                className="pressable grid h-10 w-10 shrink-0 place-items-center rounded-full text-brand-muted hover:bg-white/5 md:hidden"
+                className="pressable -ml-1 mr-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-full text-brand-muted hover:bg-white/5 md:hidden"
                 aria-label="Back to chats"
               >
                 ←
               </button>
-              <div className="hidden sm:block">
-                <Avatar name={activeContact} size={40} online={peerOnline} bot={simulated} src={peerAvatar} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-semibold text-brand-text">{activeContact}</div>
-                <div className="truncate font-mono text-[11px] text-brand-muted">
-                  {error ? (
-                    <span className="text-red-400">{error}</span>
-                  ) : peerTyping ? (
-                    <span className="text-brand-accent">typing…</span>
-                  ) : connecting ? (
-                    <span className="text-brand-faint">connecting…</span>
-                  ) : peerOnline ? (
-                    <span className="text-brand-online">online</span>
-                  ) : lastSeen ? (
-                    <span className="text-brand-faint">
-                      last seen {new Date(lastSeen).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  ) : simulated ? (
-                    <span className="text-brand-accent">demo peer · encrypted</span>
-                  ) : peerName ? (
-                    <span className="text-brand-online">🔒 end-to-end encrypted</span>
-                  ) : (
-                    <span className="text-brand-faint">waiting for peer…</span>
-                  )}
+              <div
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 sm:gap-3"
+                onClick={() => setHeaderMenuOpen((v) => !v)}
+              >
+                <div className="shrink-0">
+                  <Avatar
+                    name={activeContact}
+                    size={38}
+                    online={peerOnline}
+                    bot={simulated}
+                    src={peerAvatar || activeConversation?.avatarUrl}
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-semibold text-brand-text leading-tight">{activeContact}</div>
+                  <div className="truncate font-mono text-[11px] text-brand-muted">
+                    {error ? (
+                      <span className="text-red-400">{error}</span>
+                    ) : peerTyping ? (
+                      <span className="text-brand-accent">typing…</span>
+                    ) : connecting ? (
+                      <span className="text-brand-faint">connecting…</span>
+                    ) : peerOnline ? (
+                      <span className="text-brand-online">online</span>
+                    ) : lastSeen ? (
+                      <span className="text-brand-faint">
+                        last seen {new Date(lastSeen).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    ) : simulated ? (
+                      <span className="text-brand-accent">demo peer · encrypted</span>
+                    ) : peerName ? (
+                      <span className="text-brand-online">🔒 end-to-end encrypted</span>
+                    ) : (
+                      <span className="text-brand-faint">waiting for peer…</span>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1">
