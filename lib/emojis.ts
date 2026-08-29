@@ -10,18 +10,6 @@ export interface EmojiCategory {
 
 export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
-    key: "wechat",
-    name: "WeChat Expressions",
-    icon: "🐶",
-    emojis: [
-      "🐶", "🤦", "🤓", "🤤", "😬", "😎", "🤪", "😳", "😅", "🤭",
-      "🤣", "😱", "🫥", "🤔", "🫡", "🧧", "🧨", "🥴", "😮‍💨", "😭",
-      "🥳", "🤙", "🌹", "🥀", "🍻", "🎂", "💣", "🔪", "🌙", "☀️",
-      "🤗", "💪", "🤝", "✌️", "🐧", "🐷", "❤️", "💔", "🙏", "👏",
-      "👍", "👎", "✊", "👊", "☕", "🍉", "🍚", "🍜", "🥟", "🧋",
-    ],
-  },
-  {
     key: "smileys",
     name: "Smileys & Emotion",
     icon: "😀",
