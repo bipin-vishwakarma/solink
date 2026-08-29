@@ -6,6 +6,15 @@ release pull request. Already-open web and installed-PWA sessions poll the
 uncached `/version.json` endpoint and offer an Update button when its version
 differs from their bundled version.
 
+## 0.2.4 - 2026-08-29
+
+- Fix mobile keyboard dismissal race condition when sending messages by decoupling
+  user touch-drag interactions from automated message appending scrolls.
+- Replace smooth-scrolling with instant scroll anchoring on incoming/outgoing messages
+  so `dist` never exceeds 80px during message rendering.
+- Guarantee focus retention in Composer `submit()` across all touch and synthetic click
+  event dispatch cycles.
+
 ## 0.2.3 - 2026-08-27
 
 - Build custom WhatsApp/Telegram-style waveform voice player (`VoiceNotePlayer`)
