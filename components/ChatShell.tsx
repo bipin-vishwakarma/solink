@@ -115,6 +115,7 @@ export function ChatShell({
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [groupName, setGroupName] = useState("");
   const [groupMembers, setGroupMembers] = useState<{ id: string; username: string }[]>([]);
+  const [groupCreatedBy, setGroupCreatedBy] = useState<string | null>(null);
   const [groupMsgs, setGroupMsgs] = useState<ChatMessage[]>([]);
   const [groupConnecting, setGroupConnecting] = useState(false);
   const [newGroupOpen, setNewGroupOpen] = useState(false);
@@ -911,11 +912,13 @@ export function ChatShell({
     setGroupConnecting(true);
     setGroupName("");
     setGroupMembers([]);
+    setGroupCreatedBy(null);
     setGroupMsgs([]);
     const events: GroupEvents = {
-      onReady: (name, members) => {
+      onReady: (name, members, createdBy) => {
         setGroupName(name);
         setGroupMembers(members);
+        setGroupCreatedBy(createdBy ?? null);
         setGroupConnecting(false);
       },
       onMessage: (text, payload, mine) => {
@@ -969,15 +972,16 @@ export function ChatShell({
   }
 
   async function handleCreateGroup(name: string, members: string[]) {
-    if (!createGroup) return;
+    if (!createGroup) return false;
     const g = await createGroup(name, members);
     if (!g) {
       flash("Couldn't create group");
-      return;
+      return false;
     }
     setGroups((prev) => [g, ...prev.filter((x) => x.id !== g.id)]);
     setNewGroupOpen(false);
     openGroup(g.id);
+    return true;
   }
 
   // Use normal branding during regular chat and disguise the tab only while a
@@ -1411,6 +1415,7 @@ export function ChatShell({
             messages={groupMsgs}
             connecting={groupConnecting}
             myName={myName}
+            createdBy={groupCreatedBy ?? undefined}
             onBack={() => setActiveGroupId(null)}
             onSend={sendGroup}
             onLoadOlder={() => groupTransportRef.current?.loadOlder() || Promise.resolve(0)}

@@ -8,6 +8,8 @@ import {
   encryptDeviceTransfer,
   decryptDeviceTransfer,
   exportPublicKey,
+  encryptForRecipients,
+  decryptFromSender,
 } from "../lib/crypto";
 
 async function createKeyPair(): Promise<CryptoKeyPair> {
@@ -115,6 +117,62 @@ describe("browser message encryption", () => {
     ).rejects.toThrow();
     await expect(
       decryptDeviceTransfer(envelope, candidate, "account-a", "request-b")
+    ).rejects.toThrow();
+  });
+
+  it("pairwise-encrypts group messages so each member decrypts only their own entry", async () => {
+    const alice = await createKeyPair();
+    const bob = await createKeyPair();
+    const charlie = await createKeyPair();
+
+    const alicePub = await exportPublicKey(alice.publicKey);
+    const bobPub = await exportPublicKey(bob.publicKey);
+    const charliePub = await exportPublicKey(charlie.publicKey);
+
+    const recipients = [
+      { id: "alice-id", publicKey: alicePub },
+      { id: "bob-id", publicKey: bobPub },
+      { id: "charlie-id", publicKey: charliePub },
+    ];
+
+    const encryptedMap = await encryptForRecipients(
+      alice.privateKey,
+      recipients,
+      "secret group message"
+    );
+
+    expect(encryptedMap["alice-id"]).toBeDefined();
+    expect(encryptedMap["bob-id"]).toBeDefined();
+    expect(encryptedMap["charlie-id"]).toBeDefined();
+
+    // Bob decrypts with Bob's private key + Alice's public key
+    const bobDecrypted = await decryptFromSender(
+      bob.privateKey,
+      alicePub,
+      encryptedMap["bob-id"]
+    );
+    expect(bobDecrypted).toBe("secret group message");
+
+    // Charlie decrypts with Charlie's private key + Alice's public key
+    const charlieDecrypted = await decryptFromSender(
+      charlie.privateKey,
+      alicePub,
+      encryptedMap["charlie-id"]
+    );
+    expect(charlieDecrypted).toBe("secret group message");
+
+    // Alice decrypts her own message from history
+    const aliceDecrypted = await decryptFromSender(
+      alice.privateKey,
+      alicePub,
+      encryptedMap["alice-id"]
+    );
+    expect(aliceDecrypted).toBe("secret group message");
+
+    // Eve cannot decrypt Bob's entry
+    const eve = await createKeyPair();
+    await expect(
+      decryptFromSender(eve.privateKey, alicePub, encryptedMap["bob-id"])
     ).rejects.toThrow();
   });
 });

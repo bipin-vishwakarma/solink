@@ -306,10 +306,19 @@ export function CloudApp() {
       if (!userId) return null;
       let ids: string[] = [];
       if (memberUsernames.length) {
-        const { data: profs } = await sb
+        const allNames = Array.from(
+          new Set([
+            ...memberUsernames,
+            ...memberUsernames.map((u) => u.toLowerCase()),
+          ])
+        );
+        const { data: profs, error: pErr } = await sb
           .from("profiles")
           .select("id, username")
-          .in("username", memberUsernames);
+          .in("username", allNames);
+        if (pErr) {
+          console.error("[Solink] Failed to query member profiles:", pErr);
+        }
         ids = ((profs as { id: string }[] | null) || [])
           .map((p) => p.id)
           .filter((pid) => pid !== userId);
@@ -318,7 +327,11 @@ export function CloudApp() {
         group_name: name.trim() || "Group",
         member_ids: ids,
       });
-      if (error || !data) return null;
+      if (error) {
+        console.error("[Solink] create_group_chat RPC error:", error);
+        return null;
+      }
+      if (!data) return null;
       const group = Array.isArray(data) ? data[0] : data;
       return group as { id: string; name: string };
     },

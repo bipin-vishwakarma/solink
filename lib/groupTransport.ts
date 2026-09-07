@@ -18,7 +18,7 @@ export interface GroupContext {
 }
 
 export interface GroupEvents {
-  onReady: (name: string, members: { id: string; username: string }[]) => void;
+  onReady: (name: string, members: { id: string; username: string }[], createdBy?: string) => void;
   onMessage: (text: string, payload: WirePayload, mine: boolean) => void;
   onError?: (message: string) => void;
 }
@@ -56,25 +56,39 @@ export class GroupTransport {
     // 1. Group + members (with each member's public key for pairwise encryption).
     const { data: group, error: gErr } = await this.sb
       .from("groups")
-      .select("name")
+      .select("name, created_by")
       .eq("id", this.groupId)
       .maybeSingle();
     if (gErr || !group) {
       this.events.onError?.(gErr?.message || "Group not found");
       return;
     }
-    const { data: mems } = await this.sb
+    const { data: memRows, error: mErr } = await this.sb
       .from("group_members")
-      .select("user_id, profiles!inner(username, public_key)")
+      .select("user_id")
       .eq("group_id", this.groupId);
 
-    type MemRow = { user_id: string; profiles: { username: string; public_key: string } };
-    for (const m of (mems as unknown as MemRow[] | null) || []) {
-      this.members.set(m.user_id, { username: m.profiles.username, publicKey: m.profiles.public_key });
+    if (mErr) {
+      this.events.onError?.(mErr.message || "Failed to load group members");
+      return;
+    }
+
+    const userIds = ((memRows as { user_id: string }[] | null) || []).map((m) => m.user_id);
+    if (userIds.length > 0) {
+      const { data: profs } = await this.sb
+        .from("profiles")
+        .select("id, username, public_key")
+        .in("id", userIds);
+
+      type ProfRow = { id: string; username: string; public_key: string };
+      for (const p of (profs as ProfRow[] | null) || []) {
+        this.members.set(p.id, { username: p.username, publicKey: p.public_key });
+      }
     }
     this.events.onReady(
       group.name as string,
-      [...this.members.entries()].map(([id, v]) => ({ id, username: v.username }))
+      [...this.members.entries()].map(([id, v]) => ({ id, username: v.username })),
+      (group.created_by as string | undefined) ?? undefined
     );
 
     // 2. History (most recent page).
@@ -173,16 +187,22 @@ export class GroupTransport {
   }
 
   private async refreshMembers() {
-    const { data } = await this.sb
+    const { data: memRows } = await this.sb
       .from("group_members")
-      .select("user_id, profiles!inner(username, public_key)")
+      .select("user_id")
       .eq("group_id", this.groupId);
-    type MemRow = { user_id: string; profiles: { username: string; public_key: string } };
+    const userIds = ((memRows as { user_id: string }[] | null) || []).map((m) => m.user_id);
+    if (!userIds.length) return;
+    const { data: profs } = await this.sb
+      .from("profiles")
+      .select("id, username, public_key")
+      .in("id", userIds);
+    type ProfRow = { id: string; username: string; public_key: string };
     const next = new Map<string, { username: string; publicKey: string }>();
-    for (const member of (data as unknown as MemRow[] | null) || []) {
-      next.set(member.user_id, {
-        username: member.profiles.username,
-        publicKey: member.profiles.public_key,
+    for (const member of (profs as ProfRow[] | null) || []) {
+      next.set(member.id, {
+        username: member.username,
+        publicKey: member.public_key,
       });
     }
     if (next.size) this.members = next;
