@@ -16,6 +16,7 @@ export function GroupChatView({
   messages,
   connecting,
   myName,
+  createdBy,
   onBack,
   onSend,
   onLoadOlder,
@@ -25,6 +26,7 @@ export function GroupChatView({
   messages: ChatMessage[];
   connecting: boolean;
   myName: string;
+  createdBy?: string;
   onBack: () => void;
   onSend: (text: string) => void;
   onLoadOlder?: () => Promise<number>;
@@ -38,8 +40,17 @@ export function GroupChatView({
     }
   }, [messages.length]);
 
+  const adminMember = members.find((m) => m.id === createdBy);
+  const isMeAdmin = adminMember ? adminMember.username === myName : false;
+
   const memberLabel = members.length
-    ? members.map((m) => (m.username === myName ? "You" : m.username)).join(", ")
+    ? members
+        .map((m) => {
+          const isCreator = m.id === createdBy;
+          const label = m.username === myName ? "You" : m.username;
+          return isCreator ? `${label} (Admin)` : label;
+        })
+        .join(", ")
     : "encrypted group";
 
   return (
@@ -56,9 +67,18 @@ export function GroupChatView({
           👥
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold text-brand-text">{name || "Group"}</div>
+          <div className="flex items-center gap-2">
+            <span className="truncate font-semibold text-brand-text">{name || "Group"}</span>
+            {adminMember && (
+              <span className="shrink-0 rounded-full border border-brand-accent/30 bg-brand-accentSoft px-2 py-0.5 text-[10px] font-medium text-brand-accent">
+                👑 Admin: {isMeAdmin ? "You" : `@${adminMember.username}`}
+              </span>
+            )}
+          </div>
           <div className="truncate text-[11px] text-brand-muted">
-            {connecting ? "connecting…" : `${members.length} members · ${memberLabel}`}
+            {connecting
+              ? "connecting…"
+              : `${members.length} member${members.length === 1 ? "" : "s"} · ${memberLabel}`}
           </div>
         </div>
       </header>
@@ -100,7 +120,11 @@ export function GroupChatView({
           const prev = arr[i - 1];
           const grouped =
             !!prev && prev.mine === m.mine && prev.senderName === m.senderName && m.ts - prev.ts < 5 * 60 * 1000;
-          return <MessageBubble key={m.id} msg={m} grouped={grouped} showSender={!m.mine && !grouped} />;
+          const isSenderAdmin = members.find((mem) => mem.username === m.senderName)?.id === createdBy;
+          const displayMsg = isSenderAdmin && !m.mine
+            ? { ...m, senderName: `${m.senderName} (Admin)` }
+            : m;
+          return <MessageBubble key={m.id} msg={displayMsg} grouped={grouped} showSender={!m.mine && !grouped} />;
         })}
       </div>
 
